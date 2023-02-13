@@ -11,8 +11,8 @@ from data_utils import genSpoof_list,Dataset_ASVspoof2019_train,Dataset_ASVspoof
 from model import RawNet
 from tensorboardX import SummaryWriter
 from core_scripts.startup_config import set_random_seed
-import shap
 
+from explainer import Explainer
 
 __author__ = "Hemlata Tak"
 __email__ = "tak@eurecom.fr"
@@ -93,33 +93,45 @@ def train_epoch(train_loader, model, lr,optim, device):
     return running_loss, train_accuracy
 
 '''
-Author: Thomas Cutts
+@model : model.Rawnet, instance of a pytorch nn
+@test_data : pair, tensor and label
 
-@model : model.Rawnet -- instance of a pytorch nn
-@test_data : pair -- tensor and label
+@return : plot, visualisation of the importance of each feature
 
-Pytorch tensors are supported. The background set should be ~ 100 - 1000 samples
-1. Provide post hoc explanation of the model
-2. Output the result as a visualisation
+1. Split the sample into 5 windows/frames
+2. This creates 5 tensors of size 51680 (length of audio clip is norm. to 64600)
+3. batch_x is an n-dim tensor where n is the size of the batch e.g. (128, 64600)
+4. Seems that the score is just the snd val of the softmax vector
 '''
 def explainer(model, test_data):
-    print('Model is of type', type(model))
-    print('Test data is of type', type(test_data))
+    data_loader = DataLoader(test_data, batch_size=128, shuffle=False, drop_last=False)
+    for batch_x,_ in data_loader:
+        example_point = batch_x[0]
+    shap_explainer = Explainer(model, test_data)
+    print(shap_explainer.shap_values(2, 0, example_point))
+    # model.eval()
 
-    # Filter out the labels of the test data
-    test_tensor = []
-    for i in range(len(test_data)):
-        test_tensor.append(test_data[i][0])
+    # for batch_x,utt_id in data_loader:
+    #     # print('Current batch', batch_x)
+    #     test_point = batch_x[0]
+    #     test_point = test_point.numpy()
+    #     test_point = np.array([test_point])
+    #     test_point = torch.from_numpy(test_point)
 
-    print('Type of background', type(test_tensor))
-    # Fit the explainer to the test data
-    explainer_instance = shap.DeepExplainer(model, test_tensor)
-    # selected_val = test_data[0] # First value for testing purposes
-    # shap_values = exp.shap_values(selected_val)
-    # Do some sort of plot
-    # print(shap_values.data)
-    print('Success')
+    #     batch_x = batch_x.to(device)
+    #     batch_out = model(batch_x)
+    #     batch_score = (batch_out[:, 1]).data.cpu().numpy().ravel()
+        
+    # print('Batch out', batch_out) # output is softmax 2 dim vector
+    # print('Data point', utt_id)
+    # print('LLR output', batch_score)
+    # print('Test point', test_point)
+    # print('Size of test point', test_point.numpy().shape)
+    # print(batch_x[1])
 
+    # explainer_instance = shap.DeepExplainer(model, batch_x)
+    # shap_values = explainer_instance.shap_values(test_point)
+ 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='ASVspoof2021 baseline system')
     # Dataset
@@ -226,11 +238,9 @@ if __name__ == '__main__':
         file_eval = genSpoof_list( dir_meta =  os.path.join(args.protocols_path+'{}_cm_protocols/{}.cm.eval.trl.txt'.format(prefix,prefix_2021)),is_train=False,is_eval=True)
         print('no. of eval trials',len(file_eval))
         eval_set=Dataset_ASVspoof2021_eval(list_IDs = file_eval,base_dir = os.path.join(args.database_path+'ASVspoof2021_{}_eval/'.format(args.track)))
-        produce_evaluation_file(eval_set, model, device, args.eval_output)
         '''
-        Author: Thomas Cutts
-
-        Call the explainer by passing the model and the eval set 
+        Commented out evaluation file because not required atm
+        produce_evaluation_file(eval_set, model, device, args.eval_output)
         '''
         explainer(model, eval_set)
         sys.exit(0)
