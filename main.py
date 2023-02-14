@@ -93,44 +93,22 @@ def train_epoch(train_loader, model, lr,optim, device):
     return running_loss, train_accuracy
 
 '''
-@model : model.Rawnet, instance of a pytorch nn
-@test_data : pair, tensor and label
+@model : nn.Module, instance of a pytorch nn
+@test_data : pair, torch.Tensor and label
 
 @return : plot, visualisation of the importance of each feature
-
-1. Split the sample into 5 windows/frames
-2. This creates 5 tensors of size 51680 (length of audio clip is norm. to 64600)
-3. batch_x is an n-dim tensor where n is the size of the batch e.g. (128, 64600)
-4. Seems that the score is just the snd val of the softmax vector
 '''
 def explainer(model, test_data):
     data_loader = DataLoader(test_data, batch_size=128, shuffle=False, drop_last=False)
     for batch_x,_ in data_loader:
         example_point = batch_x[0]
+
     shap_explainer = Explainer(model, test_data)
-    print(shap_explainer.shap_values(2, 0, example_point))
-    # model.eval()
-
-    # for batch_x,utt_id in data_loader:
-    #     # print('Current batch', batch_x)
-    #     test_point = batch_x[0]
-    #     test_point = test_point.numpy()
-    #     test_point = np.array([test_point])
-    #     test_point = torch.from_numpy(test_point)
-
-    #     batch_x = batch_x.to(device)
-    #     batch_out = model(batch_x)
-    #     batch_score = (batch_out[:, 1]).data.cpu().numpy().ravel()
-        
-    # print('Batch out', batch_out) # output is softmax 2 dim vector
-    # print('Data point', utt_id)
-    # print('LLR output', batch_score)
-    # print('Test point', test_point)
-    # print('Size of test point', test_point.numpy().shape)
-    # print(batch_x[1])
-
-    # explainer_instance = shap.DeepExplainer(model, batch_x)
-    # shap_values = explainer_instance.shap_values(test_point)
+    # for window in range(5):
+    #     print(shap_explainer.shap_values(100, window, example_point))
+    windows = ['0.0-0.6','0.6-1.2','1.2-1.8','1.8-2.4','2.4-3.0']
+    values = [-0.2927074718475342, 0.3763232517242432, -0.07302648544311524, -0.5874644184112549, 0.6662308120727539]
+    shap_explainer.plot_shapley_values(windows, values)
  
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='ASVspoof2021 baseline system')
