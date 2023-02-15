@@ -100,15 +100,24 @@ def train_epoch(train_loader, model, lr,optim, device):
 '''
 def explainer(model, test_data):
     data_loader = DataLoader(test_data, batch_size=128, shuffle=False, drop_last=False)
-    for batch_x,_ in data_loader:
-        example_point = batch_x[0]
+    for batch_x, id in data_loader:
+        example_clip = 0
+        example_point = batch_x[example_clip]
+        clip_id = id[example_clip]
+        print('Clip ID:', clip_id)
+
 
     shap_explainer = Explainer(model, test_data)
-    # for window in range(5):
-    #     print(shap_explainer.shap_values(100, window, example_point))
     windows = ['0.0-0.6','0.6-1.2','1.2-1.8','1.8-2.4','2.4-3.0']
     values = [-0.2927074718475342, 0.3763232517242432, -0.07302648544311524, -0.5874644184112549, 0.6662308120727539]
-    shap_explainer.plot_shapley_values(windows, values)
+    shap_explainer.plot_waveform(example_point, values)
+
+    # for window in range(5):
+    #     print(shap_explainer.shap_values(1, window, example_point))
+
+    # windows = ['0.0-0.6','0.6-1.2','1.2-1.8','1.8-2.4','2.4-3.0']
+    # values = [-0.2927074718475342, 0.3763232517242432, -0.07302648544311524, -0.5874644184112549, 0.6662308120727539]
+    # shap_explainer.plot_shapley_values(windows, values)
  
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='ASVspoof2021 baseline system')
