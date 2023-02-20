@@ -1,9 +1,13 @@
 import random
+import math
 import numpy as np
 import matplotlib.pyplot as plt
 import torch
 from torch.utils.data import DataLoader
 from copy import deepcopy
+from sklearn.metrics import confusion_matrix
+from sklearn.metrics import f1_score
+import pandas as pd
 
 '''
 Provides post-hoc explanation for a pytorch model
@@ -116,17 +120,72 @@ class Explainer:
     '''
     EXACT SHAPLEY VALUE
     More computationally expensive hence not used in practice
+    Used for testing purposes to evaluate the accuracy of approx.
     '''
     def shap_values_exact(self, data_point):
         pass
 
     '''
-    CONFIDENCE LEVEL BASED ON CONFIDENCE INTERVALS
-    The classifier outputs a LLR score
+    PROBABILITY OF BELONGING TO POSITIVE CLASS
+    Classifier outputs a LLR score
+    LLR = log(Pos. Likelihood Ratio - Neg. Likelihood ratio)
     '''
-    def confidence_level(self):
-        pass
+    def confidence_level(self, model_output):
+        return 1 / (1 + math.exp(-model_output))
 
+    '''
+    @threshold : int, threshold for LLR score
+    @scores : list, scores from the classifier
+    @labels : list, ground truth labels
+    
+    PRECISION-RECALL CURVE FOR THE GIVEN THRESHOLD
+    Classifier outputs a soft classification (LLR)
+    '''
+    def evaluate_threshold(self, threshold):
+        scores = pd.read_csv('score.txt', delimiter='\s+')
+        metadata = pd.read_csv('trial_metadata.txt', delimiter='\s+')
+
+        predictions = []
+        scores_list = scores['score'].values.tolist()
+        labels_list = metadata['key'].values.tolist()
+
+        for score in scores_list:
+            if score > threshold:
+                predictions.append('bonafide')
+            else:
+                predictions.append('spoof')
+
+        print('confusion matrix:', confusion_matrix(labels_list, predictions))
+        print('f1 score for threshold {0} is: {1}'.format(threshold, f1_score(labels_list, predictions, pos_label='spoof')))
+    
+    '''
+    FIND OPTIMAL THRESHOLD
+    1. For each class
+    2. Average the LLR
+    3. Find the separator with the max. dist. from both scores
+    '''
+    def find_threshold(self):
+        scores = pd.read_csv('score.txt', delimiter='\s+')
+        metadata = pd.read_csv('trial_metadata.txt', delimiter='\s+')
+        scores_list = scores['score'].values.tolist()
+        labels_list = metadata['key'].values.tolist()
+
+        bonafide_scores = []
+        spoof_scores = []
+
+        for i, label in enumerate(labels_list):
+            if label == 'bonafide':
+                bonafide_scores.append(scores_list[i])
+            else:
+                spoof_scores.append(scores_list[i])
+
+        avg_bonafide = sum(bonafide_scores) / len(bonafide_scores)
+        avg_spoof = sum(spoof_scores) / len(spoof_scores)
+        print('Avg. bonafide score:', avg_bonafide)
+        print('Avg. spoof score:', avg_spoof)
+
+        print('Midpoint:', (avg_bonafide + avg_spoof) / 2)
+        
     '''
     @windows : list, of windows (0..5)
     @values : list, shapley values for given windows
