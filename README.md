@@ -8,9 +8,11 @@ This is an application specific solution, splitting the audio clips into
 5 *windows*. Each time window's Shapley value is evaluated, determining which
 segment of the audio has the biggest effect on the classifiers decision.
 
-To use you have to have a trained Rawnet model e.g *trained_model.pth*
+To use you must have a trained Rawnet model - *trained_model.pth*
 
 To run:
 ```
-python main.py --track=DF --loss=CCE --is_eval --eval --model_path='pre_trained_DF_RawNet2.pth' --protocols_path='./' --database_path='./' --eval_output='pre_trained_eval_CM_scores.txt'
+python explainer.py pre_trained_DF_RawNet2.pth
 ```
+
+*This uses code from the Rawnet Baseline system - please don't sue me lol*
