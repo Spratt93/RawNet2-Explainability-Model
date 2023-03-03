@@ -12,7 +12,7 @@ To use you must have a trained Rawnet model - *trained_model.pth*
 
 To run:
 ```
-python explainer.py pre_trained_DF_RawNet2.pth
+$ python explainer.py pre_trained_DF_RawNet2.pth
 ```
 
 *This uses code from the Rawnet Baseline system - please don't sue me lol*
