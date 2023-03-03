@@ -12,6 +12,9 @@ To use you must have a trained Rawnet model - *trained_model.pth*
 
 To run:
 ```
+$ python3.6 -m venv .explainer
+$ source .explainer/bin/activate
+$ pip install -r requirements.txt
 $ python explainer.py pre_trained_DF_RawNet2.pth
 ```
 
