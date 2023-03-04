@@ -1,4 +1,3 @@
-import os
 import random
 import math
 import sys
@@ -14,9 +13,15 @@ from sklearn.metrics import f1_score
 import pandas as pd
 import bisect
 from itertools import chain, combinations
+import librosa
+import sounddevice as sd
+import logging
 
 from data_utils import Dataset_ASVspoof2021_eval, genSpoof_list
 from model import RawNet
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s : %(message)s",
+                    datefmt="%I:%M:%S %p", )
 
 
 def find_threshold():
@@ -44,8 +49,8 @@ def find_threshold():
 
     avg_bonafide = sum(bonafide_scores) / len(bonafide_scores)
     avg_spoof = sum(spoof_scores) / len(spoof_scores)
-    print('Avg. bonafide score:', avg_bonafide)
-    print('Avg. spoof score:', avg_spoof)
+    logging.info('Avg. bonafide score: {}'.format(avg_bonafide))
+    logging.info('Avg. spoof score: {}'.format(avg_spoof))
 
     return 'Midpoint: {0}'.format((avg_bonafide + avg_spoof) / 2)
 
@@ -61,6 +66,10 @@ def get_rand_subset_size(feature_indices):
 def get_rand_subset(features, rand_subset_size, window):
     features_minus_window = [f for f in features if f != window]
     return sorted(random.sample(features_minus_window, rand_subset_size))
+
+
+def get_audio_length(file):
+    return librosa.get_duration(filename=file)
 
 
 def replace(n, to_tensor, rand_inst):
@@ -111,9 +120,9 @@ def evaluate_threshold(threshold):
         else:
             predictions.append('spoof')
 
-    print('confusion matrix:', confusion_matrix(labels_list, predictions))
-    print('f1 score for threshold {0} is: {1}'.format(threshold,
-                                                      f1_score(labels_list, predictions, pos_label='spoof')))
+    logging.info('confusion matrix: {}'.format(confusion_matrix(labels_list, predictions)))
+    logging.info('f1 score for threshold {0} is: {1}'.format(threshold,
+                                                             f1_score(labels_list, predictions, pos_label='spoof')))
 
 
 def horizontal_plot(windows, values):
@@ -173,9 +182,8 @@ class Explainer:
     """
 
     def __init__(self, model, data_set):
-        pass
-        # self.model = model.eval()
-        # self.tensors = data_set
+        self.model = model.eval()  # sets the model to the 'eval' mode
+        self.tensors = data_set
 
     def get_size(self):
         data_set_size = self.tensors.numpy()
@@ -183,8 +191,6 @@ class Explainer:
         data_set_size = data_set_size[0]
 
         return data_set_size
-
-    # Replaces feature n with values from random instance
 
     def shap_values(self, no_of_iterations, window, data_point):
         """
@@ -206,8 +212,8 @@ class Explainer:
             6. Return the mean marginal contribution
         """
 
-        print('************************')
-        print('Iterate {0} times Window {1}'.format(no_of_iterations, window))
+        logging.info('************************')
+        logging.info('Iterate {0} times Window {1}'.format(no_of_iterations, window))
         feature_indices = [0, 1, 2, 3, 4]
         data_size = self.get_size()
         marginal_contributions = []
@@ -255,8 +261,8 @@ class Explainer:
             Used for testing purposes to evaluate the accuracy of approx.
         """
 
-        print('************************')
-        print('Calculating exact Shapley value for Window {0}'.format(window))
+        logging.info('************************')
+        logging.info('Calculating exact Shapley value for Window {0}'.format(window))
         data_point.numpy()
         windows = [0, 1, 2, 3, 4]
         windows.remove(window)
@@ -266,10 +272,8 @@ class Explainer:
 
         for set in powerset:
             set = list(set)
-            # print('Current set', set)
             S = len(set)
             avg_factor = (math.factorial(S) * math.factorial(N - S - 1)) / math.factorial(N)
-            # print('Averaging factor', avg_factor)
 
             without_i = np.zeros(64600)  # zeros is eqv. to not having the feature
             for win in set:
@@ -277,11 +281,9 @@ class Explainer:
 
             with_i = np.zeros(64600)  # zeros is eqv. to not having the feature
             bisect.insort(set, window)
-            # print('Set with window', set)
             for win in set:
                 replace(win, with_i, data_point)
 
-            # print('Are equal', np.array_equal(with_i, without_i))
             with_i = np.array([with_i])
             without_i = np.array([without_i])
             with_i = torch.from_numpy(with_i).float()
@@ -289,16 +291,18 @@ class Explainer:
 
             val1 = self.model(with_i)[0][1].item()
             val2 = self.model(without_i)[0][1].item()
-            # print('Value with_i is {0} and without_i is {1}'.format(val1, val2))
 
             out.append(avg_factor * (val1 - val2))
 
         return 'Exact Shapley value for window {0} is {1}'.format(window, sum(out))
 
-    def test_efficiency(self, data_point, data_set):
+    def test_efficiency(self, values, data_point, data_set):
         """
+        @values : [float], shapley values for data_point
         @data_point : torch.Tensor
         @data_set : torch.Tensor
+
+        @return : pair, should be equal to each other
 
         Shapley values for a given data point should sum to
         the difference between the:
@@ -312,35 +316,30 @@ class Explainer:
         data_point = torch.from_numpy(data_point)
         point = self.model(data_point)[0, 1]
         batch = self.model(data_set)[:, 1]
-        print('Prediction for point is:', point)
-        print('Prediction for batch is:', sum(batch))
         avg = sum(batch) / len(batch)
 
-        return (point - avg).item()
+        return sum(values), (point - avg).item()
 
-    def library_shap_values(self, test_data, test_point):
-        """
-        @test_data : np.array, a subset of the test set
+    def test_symmetry(self):
+        pass
 
-        @return : array, Shapley values
-        """
+    def test_dummy(self):
+        pass
 
-        f = lambda x: self.model(torch.from_numpy(x)).detach().numpy()[:, 1]
-        # explainer = shap.KernelExplainer(f, test_data)
-        # vals = explainer.shap_values(test_point)
-        # print(vals)
+    def test_additivity(self):
+        pass
 
 
 if __name__ == '__main__':
     if len(sys.argv) < 2:
-        raise Exception('Missing the trained model...')
+        raise Exception('Missing the trained model as an argument...')
 
     # GPU device
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
-    print('Device: {}'.format(device))
+    logging.info('Device: {}'.format(device))
 
     # model
-    dir_yaml = os.path.splitext('model_config_RawNet')[0] + '.yaml'
+    dir_yaml = './model_config_RawNet.yaml'
     with open(dir_yaml, 'r') as f_yaml:
         parser1 = yaml.safe_load(f_yaml)
 
@@ -349,20 +348,29 @@ if __name__ == '__main__':
     nb_params = sum([param.view(-1).size()[0] for param in model.parameters()])
     model = model.to(device)
     model.load_state_dict(torch.load(trained_model, map_location=device))
-    print('Model loaded : {}'.format(trained_model))
+    logging.info('Model loaded : {}'.format(trained_model))
 
     # dataset
     file_eval = genSpoof_list(dir_meta='./ASVspoof_DF_cm_protocols/ASVspoof2021.DF.cm.eval.trl.txt', is_train=False,
                               is_eval=True)
-    print('No. of eval trials:', len(file_eval))
+    logging.info('No. of eval trials: {}'.format(len(file_eval)))
     eval_set = Dataset_ASVspoof2021_eval(list_IDs=file_eval, base_dir='./ASVspoof2021_DF_eval/')
 
-    data_loader = DataLoader(eval_set, batch_size=128, shuffle=False, drop_last=False)
+    data_loader = DataLoader(eval_set, batch_size=400, shuffle=False, drop_last=False)
     for batch_x, utt_id in data_loader:
         example_clip = 0
         example_point = batch_x[example_clip]
         clip_id = utt_id[example_clip]
-        print('Clip ID:', clip_id)
+        logging.info('Clip ID: {}'.format(clip_id))
 
-    # instantiate explainer
+    # explainer
     shap_explainer = Explainer(model, batch_x)
+
+    clips = []
+    for clip in utt_id:
+        length = get_audio_length('./ASVspoof2021_DF_eval/flac/{}.flac'.format(clip))
+        if 3.8 < length < 4.2:
+            logging.info('Clip ID: {0} is of length {1}'.format(clip, length))
+            clips.append(clip)
+
+    logging.info('Clips pool size: {}'.format(len(clips)))
