@@ -1,21 +1,18 @@
-import random
+import logging
 import math
+import random
 import sys
+from copy import deepcopy
 
-import numpy as np
+import librosa
 import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
 import torch
 import yaml
-from torch.utils.data import DataLoader
-from copy import deepcopy
 from sklearn.metrics import confusion_matrix
 from sklearn.metrics import f1_score
-import pandas as pd
-import bisect
-from itertools import chain, combinations
-import librosa
-import sounddevice as sd
-import logging
+from torch.utils.data import DataLoader
 
 from data_utils import Dataset_ASVspoof2021_eval, genSpoof_list
 from model import RawNet
@@ -147,20 +144,20 @@ def horizontal_plot(windows, values):
 
 def plot_waveform(audio, values):
     """
-        @audio : torch.Tensor, tensor representation of the audio
+        @audio : np.array, float array representation of the audio
         @values : list, shapley values for given windows
 
-        @return : graph, waveform diagram with heatmap for the most important section
+        @return : graph, waveform diagram with most significant window highlighted
     """
 
-    audio = audio.numpy()
-    time = 64600 / 16000  # 16Hz sampling rate - Each audio clip has 64600 data points
-    x = np.linspace(0, time, num=len(audio))
+    duration = len(audio)
+    time = round(duration / 16000)  # 16KHz sampling rate
+    x = np.linspace(0, time, num=duration)
 
     significant_val = max(values)
     index = values.index(significant_val)
-    end_slice = int((index + 1) * (64600 / 5))
-    begin_slice = end_slice - 12920
+    end_slice = round((index + 1) * (duration / 5))
+    begin_slice = round(end_slice - (duration / 5))
 
     fig, ax = plt.subplots()
     plt.plot(x[begin_slice:end_slice], audio[begin_slice:end_slice], color='r')
@@ -212,7 +209,6 @@ class Explainer:
             6. Return the mean marginal contribution
         """
 
-        logging.info('************************')
         logging.info('Iterate {0} times Window {1}'.format(no_of_iterations, window))
         feature_indices = [0, 1, 2, 3, 4]
         data_size = self.get_size()
@@ -249,52 +245,6 @@ class Explainer:
         shap_val = sum(marginal_contributions) / len(marginal_contributions)
 
         return 'Approx. Shapley value for window {0} is {1}'.format(window, shap_val)
-
-    def shap_values_exact(self, window, data_point):
-        """
-            @window : int, feature in question
-            @data_point : torch.Tensor, data point in question
-
-            @return : float, exact shapley value
-
-            More computationally expensive hence not used in practice - O(2^n)
-            Used for testing purposes to evaluate the accuracy of approx.
-        """
-
-        logging.info('************************')
-        logging.info('Calculating exact Shapley value for Window {0}'.format(window))
-        data_point.numpy()
-        windows = [0, 1, 2, 3, 4]
-        windows.remove(window)
-        powerset = list(chain.from_iterable(combinations(windows, r) for r in range(len(windows) + 1)))
-        N = 5
-        out = []
-
-        for set in powerset:
-            set = list(set)
-            S = len(set)
-            avg_factor = (math.factorial(S) * math.factorial(N - S - 1)) / math.factorial(N)
-
-            without_i = np.zeros(64600)  # zeros is eqv. to not having the feature
-            for win in set:
-                replace(win, without_i, data_point)
-
-            with_i = np.zeros(64600)  # zeros is eqv. to not having the feature
-            bisect.insort(set, window)
-            for win in set:
-                replace(win, with_i, data_point)
-
-            with_i = np.array([with_i])
-            without_i = np.array([without_i])
-            with_i = torch.from_numpy(with_i).float()
-            without_i = torch.from_numpy(without_i).float()
-
-            val1 = self.model(with_i)[0][1].item()
-            val2 = self.model(without_i)[0][1].item()
-
-            out.append(avg_factor * (val1 - val2))
-
-        return 'Exact Shapley value for window {0} is {1}'.format(window, sum(out))
 
     def test_efficiency(self, values, data_point, data_set):
         """
@@ -358,19 +308,12 @@ if __name__ == '__main__':
 
     data_loader = DataLoader(eval_set, batch_size=400, shuffle=False, drop_last=False)
     for batch_x, utt_id in data_loader:
-        example_clip = 0
-        example_point = batch_x[example_clip]
-        clip_id = utt_id[example_clip]
-        logging.info('Clip ID: {}'.format(clip_id))
+        pass
 
     # explainer
     shap_explainer = Explainer(model, batch_x)
 
-    clips = []
-    for clip in utt_id:
-        length = get_audio_length('./ASVspoof2021_DF_eval/flac/{}.flac'.format(clip))
-        if 3.8 < length < 4.2:
-            logging.info('Clip ID: {0} is of length {1}'.format(clip, length))
-            clips.append(clip)
-
-    logging.info('Clips pool size: {}'.format(len(clips)))
+    test_file = librosa.load('./ASVspoof2021_DF_eval/flac/DF_E_2000032.flac', sr=16000)
+    (audio, label) = test_file
+    logging.info('Shape of test_file is: {}'.format(audio.shape))
+    plot_waveform(audio, [0,0,0,0,1])
