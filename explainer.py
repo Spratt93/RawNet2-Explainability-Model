@@ -122,6 +122,27 @@ def evaluate_threshold(threshold):
                                                              f1_score(labels_list, predictions, pos_label='spoof')))
 
 
+def create_test_set(vocoder_type, n):
+    metadata = pd.read_csv('trial_metadata.txt', delimiter='\s+')
+    id_list = metadata['trialID'].values.tolist()
+
+    file = open('{}.txt'.format(vocoder_type), 'w')
+    count = 0
+    for i, utt_id in enumerate(id_list):
+        if count == n:
+            break
+
+        if metadata.iloc[i, 2] == 'low_mp3' and metadata.iloc[i, 8] == '{}'.format(vocoder_type):
+            loaded_file = librosa.load('./ASVspoof2021_DF_eval/flac/{}.flac'.format(utt_id), sr=16000)
+            (audio, _) = loaded_file
+            if 3.85 <= librosa.get_duration(y=audio, sr=16000) <= 4.15:
+                logging.info('Adding Clip: {}'.format(utt_id))
+                file.write(utt_id + '\n')
+                count += 1
+
+    file.close()
+
+
 def horizontal_plot(windows, values):
     """
         @windows : list, of windows (0..5)
@@ -312,8 +333,3 @@ if __name__ == '__main__':
 
     # explainer
     shap_explainer = Explainer(model, batch_x)
-
-    test_file = librosa.load('./ASVspoof2021_DF_eval/flac/DF_E_2000032.flac', sr=16000)
-    (audio, label) = test_file
-    logging.info('Shape of test_file is: {}'.format(audio.shape))
-    plot_waveform(audio, [0,0,0,0,1])
