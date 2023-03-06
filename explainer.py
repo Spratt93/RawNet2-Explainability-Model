@@ -21,37 +21,6 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s : %(
                     datefmt="%I:%M:%S %p", )
 
 
-def find_threshold():
-    """
-        FIND OPTIMAL THRESHOLD
-        1. For each class
-        2. Average the LLR
-        3. Find the separator with the max. dist. from both scores
-    """
-
-    scores = pd.read_csv('score.txt', delimiter='\s+')
-    metadata = pd.read_csv('trial_metadata.txt', delimiter='\s+')
-
-    scores_list = scores['score'].values.tolist()
-    labels_list = metadata['key'].values.tolist()
-
-    bonafide_scores = []
-    spoof_scores = []
-
-    for i, label in enumerate(labels_list):
-        if label == 'bonafide':
-            bonafide_scores.append(scores_list[i])
-        else:
-            spoof_scores.append(scores_list[i])
-
-    avg_bonafide = sum(bonafide_scores) / len(bonafide_scores)
-    avg_spoof = sum(spoof_scores) / len(spoof_scores)
-    logging.info('Avg. bonafide score: {}'.format(avg_bonafide))
-    logging.info('Avg. spoof score: {}'.format(avg_spoof))
-
-    return 'Midpoint: {0}'.format((avg_bonafide + avg_spoof) / 2)
-
-
 def get_rand_idx(data_size):
     return random.randint(0, data_size - 1)
 
@@ -94,6 +63,38 @@ def confidence_level(model_output):
     return 1 / (1 + math.exp(-model_output))
 
 
+def find_threshold():
+    """
+        FIND MIDPOINT THRESHOLD
+        1. For each class
+        2. Average the LLR
+        3. Find the separator with the max. dist. from both scores
+    """
+
+    scores = pd.read_csv('score.txt', delimiter='\s+')
+    metadata = pd.read_csv('trial_metadata.txt', delimiter='\s+')
+    spoof_scores = []
+    bonafide_scores = []
+
+    with open('test_set.txt', 'r') as test_set:
+        for clip in test_set:
+            clip = clip.rstrip()  # strip trailing \n
+            score = scores.loc[scores['trialID'] == clip]['score'].item()
+            label = metadata.loc[scores['trialID'] == clip]['key'].item()
+     
+            if label == 'bonafide':
+                bonafide_scores.append(score)
+            else:
+                spoof_scores.append(score)
+
+    avg_bonafide = sum(bonafide_scores) / len(bonafide_scores)
+    avg_spoof = sum(spoof_scores) / len(spoof_scores)
+    logging.info('Avg. bonafide score: {}'.format(avg_bonafide))
+    logging.info('Avg. spoof score: {}'.format(avg_spoof))
+
+    return 'Midpoint: {0}'.format((avg_bonafide + avg_spoof) / 2)
+
+
 def evaluate_threshold(threshold):
     """
         @threshold : int, threshold for LLR score
@@ -102,14 +103,22 @@ def evaluate_threshold(threshold):
 
         PRECISION-RECALL CURVE FOR THE GIVEN THRESHOLD
         Classifier outputs a soft classification (LLR)
+        Note: Best f1 score ~ -1.5 - even tho mid ~ -6.5
     """
 
     scores = pd.read_csv('score.txt', delimiter='\s+')
     metadata = pd.read_csv('trial_metadata.txt', delimiter='\s+')
-
+    scores_list = []
+    labels_list = []
     predictions = []
-    scores_list = scores['score'].values.tolist()
-    labels_list = metadata['key'].values.tolist()
+
+    with open('test_set.txt', 'r') as test_set:
+        for clip in test_set:
+            clip = clip.rstrip()  # strip trailing \n
+            score = scores.loc[scores['trialID'] == clip]['score'].item()
+            label = metadata.loc[scores['trialID'] == clip]['key'].item()
+            scores_list.append(score)
+            labels_list.append(label)
 
     for score in scores_list:
         if score > threshold:
@@ -118,8 +127,9 @@ def evaluate_threshold(threshold):
             predictions.append('spoof')
 
     logging.info('confusion matrix: {}'.format(confusion_matrix(labels_list, predictions)))
-    logging.info('f1 score for threshold {0} is: {1}'.format(threshold,
-                                                             f1_score(labels_list, predictions, pos_label='spoof')))
+
+    return 'f1 score for threshold {0} is: {1}'.format(threshold,
+                                                             f1_score(labels_list, predictions, pos_label='spoof'))
 
 
 def create_test_set(vocoder_type, n):
@@ -141,6 +151,33 @@ def create_test_set(vocoder_type, n):
                 count += 1
 
     file.close()
+
+
+def model_prediction_avg():
+    """
+        @model : torch.nn.Module, Instance of Rawnet model
+        @batch : torch.utils.data.Dataset, Batch of size n
+
+        @return : the avg. model prediction for all data points in the batch
+    
+        Helper function for evaluating the EFFICIENT property of Shapley values
+    """
+    
+    scores = pd.read_csv('score.txt', delimiter='\s+')
+
+    return scores['score'].mean()
+
+
+def model_prediction(clip):
+    """
+        @clip : string, ID of audio clip
+
+        @return : float, model prediction for said clip
+    """
+
+    scores = pd.read_csv('score.txt', delimiter='\s+')
+
+    return scores.loc[scores['trialID'] == clip]['score'].item()
 
 
 def horizontal_plot(windows, values):
@@ -264,10 +301,12 @@ class Explainer:
             marginal_contributions.append(marginal_contribution)
 
         shap_val = sum(marginal_contributions) / len(marginal_contributions)
+        logging.info('Shapley value: {}'.format(shap_val))
 
-        return 'Approx. Shapley value for window {0} is {1}'.format(window, shap_val)
+        return shap_val
 
-    def test_efficiency(self, values, data_point, data_set):
+
+    def efficient(self, values, data_point, average):
         """
         @values : [float], shapley values for data_point
         @data_point : torch.Tensor
@@ -286,10 +325,8 @@ class Explainer:
         data_point = np.array([data_point])
         data_point = torch.from_numpy(data_point)
         point = self.model(data_point)[0, 1]
-        batch = self.model(data_set)[:, 1]
-        avg = sum(batch) / len(batch)
 
-        return sum(values), (point - avg).item()
+        return sum(values), (point - average).item()
 
     def test_symmetry(self):
         pass
