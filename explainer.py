@@ -16,6 +16,7 @@ from torch.utils.data import DataLoader
 
 from data_utils import Dataset_ASVspoof2021_eval, genSpoof_list
 from model import RawNet
+from setup_model import load_model
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s : %(message)s",
                     datefmt="%I:%M:%S %p", )
@@ -81,7 +82,7 @@ def find_threshold():
             clip = clip.rstrip()  # strip trailing \n
             score = scores.loc[scores['trialID'] == clip]['score'].item()
             label = metadata.loc[scores['trialID'] == clip]['key'].item()
-     
+
             if label == 'bonafide':
                 bonafide_scores.append(score)
             else:
@@ -126,10 +127,11 @@ def evaluate_threshold(threshold):
         else:
             predictions.append('spoof')
 
-    logging.info('confusion matrix: {}'.format(confusion_matrix(labels_list, predictions)))
+    logging.info('confusion matrix: {}'.format(
+        confusion_matrix(labels_list, predictions)))
 
     return 'f1 score for threshold {0} is: {1}'.format(threshold,
-                                                             f1_score(labels_list, predictions, pos_label='spoof'))
+                                                       f1_score(labels_list, predictions, pos_label='spoof'))
 
 
 def create_test_set(vocoder_type, n):
@@ -143,7 +145,8 @@ def create_test_set(vocoder_type, n):
             break
 
         if metadata.iloc[i, 2] == 'low_mp3' and metadata.iloc[i, 8] == '{}'.format(vocoder_type):
-            loaded_file = librosa.load('./ASVspoof2021_DF_eval/flac/{}.flac'.format(utt_id), sr=16000)
+            loaded_file = librosa.load(
+                './ASVspoof2021_DF_eval/flac/{}.flac'.format(utt_id), sr=16000)
             (audio, _) = loaded_file
             if 3.85 <= librosa.get_duration(y=audio, sr=16000) <= 4.15:
                 logging.info('Adding Clip: {}'.format(utt_id))
@@ -159,10 +162,10 @@ def model_prediction_avg():
         @batch : torch.utils.data.Dataset, Batch of size n
 
         @return : the avg. model prediction for all data points in the batch
-    
+
         Helper function for evaluating the EFFICIENT property of Shapley values
     """
-    
+
     scores = pd.read_csv('score.txt', delimiter='\s+')
 
     return scores['score'].mean()
@@ -267,7 +270,8 @@ class Explainer:
             6. Return the mean marginal contribution
         """
 
-        logging.info('Iterate {0} times Window {1}'.format(no_of_iterations, window))
+        logging.info('Iterate {0} times Window {1}'.format(
+            no_of_iterations, window))
         feature_indices = [0, 1, 2, 3, 4]
         data_size = self.get_size()
         marginal_contributions = []
@@ -294,7 +298,8 @@ class Explainer:
             x_with_window = torch.from_numpy(x_with_window)
             x_without_window = torch.from_numpy(x_without_window)
 
-            pred_1 = self.model(x_with_window)[0][1].item()  # snd dim of softmax is used as LLR
+            # snd dim of softmax is used as LLR
+            pred_1 = self.model(x_with_window)[0][1].item()
             pred_2 = self.model(x_without_window)[0][1].item()
 
             marginal_contribution = pred_1 - pred_2
@@ -304,7 +309,6 @@ class Explainer:
         logging.info('Shapley value: {}'.format(shap_val))
 
         return shap_val
-
 
     def efficient(self, values, data_point, average):
         """
@@ -342,31 +346,7 @@ if __name__ == '__main__':
     if len(sys.argv) < 2:
         raise Exception('Missing the trained model as an argument...')
 
-    # GPU device
-    device = 'cuda' if torch.cuda.is_available() else 'cpu'
-    logging.info('Device: {}'.format(device))
-
-    # model
-    dir_yaml = './model_config_RawNet.yaml'
-    with open(dir_yaml, 'r') as f_yaml:
-        parser1 = yaml.safe_load(f_yaml)
-
-    trained_model = sys.argv[1]
-    model = RawNet(parser1['model'], device)
-    nb_params = sum([param.view(-1).size()[0] for param in model.parameters()])
-    model = model.to(device)
-    model.load_state_dict(torch.load(trained_model, map_location=device))
-    logging.info('Model loaded : {}'.format(trained_model))
-
-    # dataset
-    file_eval = genSpoof_list(dir_meta='./ASVspoof_DF_cm_protocols/ASVspoof2021.DF.cm.eval.trl.txt', is_train=False,
-                              is_eval=True)
-    logging.info('No. of eval trials: {}'.format(len(file_eval)))
-    eval_set = Dataset_ASVspoof2021_eval(list_IDs=file_eval, base_dir='./ASVspoof2021_DF_eval/')
-
-    data_loader = DataLoader(eval_set, batch_size=400, shuffle=False, drop_last=False)
-    for batch_x, utt_id in data_loader:
-        pass
+    model, batch, labels = load_model(sys.argv[1])
 
     # explainer
-    shap_explainer = Explainer(model, batch_x)
+    shap_explainer = Explainer(model, batch)
