@@ -24,7 +24,6 @@ def load_model(model_path):
         parser1 = yaml.safe_load(f_yaml)
 
     model = RawNet(parser1['model'], device)
-    nb_params = sum([param.view(-1).size()[0] for param in model.parameters()])
     model = model.to(device)
 
     model.load_state_dict(torch.load(model_path, map_location=device))

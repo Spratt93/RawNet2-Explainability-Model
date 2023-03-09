@@ -1,27 +1,16 @@
-import os
 import sys
 import unittest
 import logging
 
-import yaml
-import torch
-from torch.utils.data import DataLoader
-
-from data_utils import genSpoof_list, Dataset_ASVspoof2021_eval
 from explainer import Explainer, model_prediction_avg, model_prediction
-from model import RawNet
 from setup_model import load_model
-
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s : %(message)s",
-                    datefmt="%I:%M:%S %p", )
 
 
 class TestShapley(unittest.TestCase):
 
     model, batch, labels = load_model(sys.argv[1])
-
-    # explainer
     shap_explainer = Explainer(model, batch)
+
 
     def test_efficiency(self):
         """
@@ -43,11 +32,11 @@ class TestShapley(unittest.TestCase):
             clip = self.labels[i]
             logging.info('Calculating for Clip: {}'.format(clip))
             pred = model_prediction(clip)
+            logging.info('Model prediction: {}'.format(pred))
             preds.append(pred)
             vals = [self.shap_explainer.shap_values(
                 1000, i, x) for i in range(5)]
             sums.append(sum(vals))
-            logging.info('Model prediction: {}'.format(pred))
 
         for i, s in enumerate(sums):
             diff = abs(s - (preds[i] - avg))

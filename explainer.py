@@ -9,13 +9,10 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import torch
-import yaml
 from sklearn.metrics import confusion_matrix
 from sklearn.metrics import f1_score
-from torch.utils.data import DataLoader
+from shap import KernelExplainer
 
-from data_utils import Dataset_ASVspoof2021_eval, genSpoof_list
-from model import RawNet
 from setup_model import load_model
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s : %(message)s",
@@ -40,16 +37,16 @@ def get_audio_length(file):
 
 
 def replace(n, to_tensor, rand_inst):
-    if n == 0:
-        to_tensor[:12920] = rand_inst[:12920]
-    if n == 1:
-        to_tensor[12920:25840] = rand_inst[12920:25840]
-    if n == 2:
-        to_tensor[25840:38760] = rand_inst[25840:38760]
-    if n == 3:
-        to_tensor[38760:51680] = rand_inst[38760:51680]
-    if n == 4:
-        to_tensor[51680:64600] = rand_inst[51680:64600]
+    """
+        @n : int, the time window to replace
+        @to_tensor : torch.Tensor, the tensor used in the Shapley value equation
+        @rand_inst : torch.Tensor, the random data point used in the Monte Carlo Approx.
+
+        @return : torch.Tensor, the 
+    """
+    end_slice = int((n + 1) * 12920)  # audio is normalised to arr of len 64600
+    begin_slice = int(end_slice - 12920)
+    to_tensor[begin_slice:end_slice] = rand_inst[begin_slice:end_slice]
 
     return to_tensor
 
@@ -138,22 +135,20 @@ def create_test_set(vocoder_type, n):
     metadata = pd.read_csv('trial_metadata.txt', delimiter='\s+')
     id_list = metadata['trialID'].values.tolist()
 
-    file = open('{}.txt'.format(vocoder_type), 'w')
-    count = 0
-    for i, utt_id in enumerate(id_list):
-        if count == n:
-            break
+    with open('{}.txt'.format(vocoder_type), 'w') as audio_file:
+        count = 0
+        for i, utt_id in enumerate(id_list):
+            if count == n:
+                break
 
-        if metadata.iloc[i, 2] == 'low_mp3' and metadata.iloc[i, 8] == '{}'.format(vocoder_type):
-            loaded_file = librosa.load(
-                './ASVspoof2021_DF_eval/flac/{}.flac'.format(utt_id), sr=16000)
-            (audio, _) = loaded_file
-            if 3.85 <= librosa.get_duration(y=audio, sr=16000) <= 4.15:
-                logging.info('Adding Clip: {}'.format(utt_id))
-                file.write(utt_id + '\n')
-                count += 1
-
-    file.close()
+            if metadata.iloc[i, 2] == 'low_mp3' and metadata.iloc[i, 8] == '{}'.format(vocoder_type):
+                loaded_file = librosa.load(
+                    './ASVspoof2021_DF_eval/flac/{}.flac'.format(utt_id), sr=16000)
+                (audio, _) = loaded_file
+                if 3.85 <= librosa.get_duration(y=audio, sr=16000) <= 4.15:
+                    logging.info('Adding Clip: {}'.format(utt_id))
+                    audio_file.write(utt_id + '\n')
+                    count += 1
 
 
 def model_prediction_avg():
@@ -176,6 +171,8 @@ def model_prediction(clip):
         @clip : string, ID of audio clip
 
         @return : float, model prediction for said clip
+
+        Helper function for testing
     """
 
     scores = pd.read_csv('score.txt', delimiter='\s+')
@@ -183,8 +180,9 @@ def model_prediction(clip):
     return scores.loc[scores['trialID'] == clip]['score'].item()
 
 
-def horizontal_plot(windows, values):
+def plot_horizontal(name, windows, values):
     """
+        @name : string, name of audio clip
         @windows : list, of windows (0..5)
         @values : list, shapley values for given windows
 
@@ -200,15 +198,18 @@ def horizontal_plot(windows, values):
     plt.ylabel('Window (seconds)')
     plt.xlabel('Shapley value')
     plt.title('Horizontal plot')
-    plt.show()
+    plt.savefig('{}.png'.format(name))
 
 
-def plot_waveform(audio, values):
+def plot_waveform(name, audio, values):
     """
+        @name : string, name of audio clip
         @audio : np.array, float array representation of the audio
-        @values : list, shapley values for given windows
+        @values : list, Shapley values for given windows
 
         @return : graph, waveform diagram with most significant window highlighted
+
+        SOLELY CONCERNED WITH THE LARGEST SHAPLEY VALUE
     """
 
     duration = len(audio)
@@ -220,23 +221,31 @@ def plot_waveform(audio, values):
     end_slice = round((index + 1) * (duration / 5))
     begin_slice = round(end_slice - (duration / 5))
 
-    fig, ax = plt.subplots()
     plt.plot(x[begin_slice:end_slice], audio[begin_slice:end_slice], color='r')
     plt.plot(x[:begin_slice], audio[:begin_slice])
     plt.plot(x[end_slice:], audio[end_slice:])
     plt.xlabel('time')
-    plt.show()
+    plt.savefig('{}.png'.format(name))
+
+
+# TODO
+def plot_verbal(name, values):
+    """
+        @name : string, name of audio clip
+        @values: list, Shapley values for the given clip
+    """
+    pass
 
 
 class Explainer:
     """
-    @model : nn.Module, pre-trained pytorch model
-    @data_set : torch.utils.Dataset, the test set
+        @model : torch.nn.Module, pre-trained pytorch model
+        @data_set : torch.utils.Dataset, the test set
 
-    Provides post-hoc explanation for a pytorch model
+        Provides post-hoc explanation for a pytorch model
 
-    Splits the audio clip into 5 time windows
-    Evaluating each window's impact on the classifier's decision
+        Splits the audio clip into 5 time windows
+        Evaluating each window's impact on the classifier's decision
     """
 
     def __init__(self, model, data_set):
@@ -309,44 +318,45 @@ class Explainer:
         logging.info('Shapley value: {}'.format(shap_val))
 
         return shap_val
+        
 
-    def efficient(self, values, data_point, average):
-        """
-        @values : [float], shapley values for data_point
-        @data_point : torch.Tensor
-        @data_set : torch.Tensor
+    # def helper(self, window, audio, sliced):
+    #     i = deepcopy(window)
+    #     while window < len(audio):
+    #         sliced[i].append(audio[window])
+    #         window += 5
 
-        @return : pair, should be equal to each other
+    #     return sliced
 
-        Shapley values for a given data point should sum to
-        the difference between the:
-            1. Model prediction for said data point
-            2. Average model prediction for the data set
-
-        This is testing the EFFICIENT property of shapley values
-        """
-        data_point = data_point.numpy()
-        data_point = np.array([data_point])
-        data_point = torch.from_numpy(data_point)
-        point = self.model(data_point)[0, 1]
-
-        return sum(values), (point - average).item()
-
-    def test_symmetry(self):
-        pass
-
-    def test_dummy(self):
-        pass
-
-    def test_additivity(self):
-        pass
+    # def f(self, x):
+    #     comb = x[0] + x[1] + x[2] + x[3] + x[4]
+    #     logging.info('Shape of list {}'.format(comb.shape))
+    #     comb = np.array([comb])
+    #     comb = torch.from_numpy(comb)
+    #     return self.model(comb)
+    
+    # def library_shap_values(self, audio):
+    #     audio = audio.detach().numpy()
+    #     sliced = [[], [], [], [], []]
+    #     for i in range(5):
+    #         self.helper(i, audio, sliced)
+        
+    #     kernel_explainer = KernelExplainer(model=self.f, data=np.array(sliced))        
 
 
 if __name__ == '__main__':
     if len(sys.argv) < 2:
-        raise Exception('Missing the trained model as an argument...')
+        raise TypeError('Missing the trained model as an argument...')
 
     model, batch, labels = load_model(sys.argv[1])
 
     # explainer
     shap_explainer = Explainer(model, batch)
+
+    shap_explainer.library_shap_values(batch[0])
+
+    # test_point = np.zeros((1,64600))
+    # test_point = torch.from_numpy(test_point).to(dtype=torch.float32)
+
+    # for w in range(5):
+    #     shap_explainer.shap_values(100, w, test_point)
