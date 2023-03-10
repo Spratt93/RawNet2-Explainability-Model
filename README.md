@@ -26,5 +26,3 @@ $ source .explainer/bin/activate
 $ pip install -r requirements.txt
 $ python explainer.py pre_trained_DF_RawNet2.pth
 ```
-
-*This uses code from the Rawnet Baseline system*

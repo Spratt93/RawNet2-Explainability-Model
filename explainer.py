@@ -11,7 +11,6 @@ import pandas as pd
 import torch
 from sklearn.metrics import confusion_matrix
 from sklearn.metrics import f1_score
-from shap import KernelExplainer
 
 from setup_model import load_model
 
@@ -180,6 +179,8 @@ def model_prediction(clip):
     return scores.loc[scores['trialID'] == clip]['score'].item()
 
 
+
+
 def plot_horizontal(name, windows, values):
     """
         @name : string, name of audio clip
@@ -250,10 +251,10 @@ class Explainer:
 
     def __init__(self, model, data_set):
         self.model = model.eval()  # sets the model to the 'eval' mode
-        self.tensors = data_set
+        self.data_set = data_set
 
     def get_size(self):
-        data_set_size = self.tensors.numpy()
+        data_set_size = self.data_set.numpy()
         data_set_size = data_set_size.shape
         data_set_size = data_set_size[0]
 
@@ -287,7 +288,7 @@ class Explainer:
 
         for _ in range(no_of_iterations):
             rand_idx = get_rand_idx(data_size)
-            rand_instance = self.tensors[rand_idx]
+            rand_instance = self.data_set[rand_idx]
 
             rand_subset_size = get_rand_subset_size(feature_indices)
             x_idx = get_rand_subset(feature_indices, rand_subset_size, window)
@@ -318,45 +319,54 @@ class Explainer:
         logging.info('Shapley value: {}'.format(shap_val))
 
         return shap_val
+
+    def average_error_margin(self, n, labels):
+        """
+            @n : int, no. of iterations for Monte Carlo approx.
+            @labels : list, names of the audio clips in data set
+
+            Returns the average margin of error for the EFFICIENT property of
+            Shapley values for a given no. of iterations
+        """
+        avg = model_prediction_avg()
+        sums = []
+        preds = []
+
+        for i, x in enumerate(self.data_set):
+            clip = labels[i]
+            pred = model_prediction(clip)
+            preds.append(pred)
+            vals = [self.shap_values(n, i, x) for i in range(5)]
+            sums.append(sum(vals))
         
-
-    # def helper(self, window, audio, sliced):
-    #     i = deepcopy(window)
-    #     while window < len(audio):
-    #         sliced[i].append(audio[window])
-    #         window += 5
-
-    #     return sliced
-
-    # def f(self, x):
-    #     comb = x[0] + x[1] + x[2] + x[3] + x[4]
-    #     logging.info('Shape of list {}'.format(comb.shape))
-    #     comb = np.array([comb])
-    #     comb = torch.from_numpy(comb)
-    #     return self.model(comb)
-    
-    # def library_shap_values(self, audio):
-    #     audio = audio.detach().numpy()
-    #     sliced = [[], [], [], [], []]
-    #     for i in range(5):
-    #         self.helper(i, audio, sliced)
+        diffs = []
+        for i, s in enumerate(sums):
+            diff = abs(s - (preds[i] - avg))
+            diffs.append(diff)
         
-    #     kernel_explainer = KernelExplainer(model=self.f, data=np.array(sliced))        
+        avg_err = sum(diffs) / len(diffs)
+        logging.info('Average margin of error for {0} iterations: {1}'.format(n, avg_err))
 
+        return avg_err
+
+        
 
 if __name__ == '__main__':
     if len(sys.argv) < 2:
-        raise TypeError('Missing the trained model as an argument...')
+        raise TypeError('Trained model not provided...')
 
     model, batch, labels = load_model(sys.argv[1])
 
     # explainer
     shap_explainer = Explainer(model, batch)
+    zeros = np.zeros(12920).tolist()
+    ones = np.ones(51680).tolist()
+    test_point = ones + zeros
+    test_point2 = np.array([test_point2])
+    test_point2 = torch.from_numpy(test_point2).float()
+    test_point2 = zeros + ones
+    test_point2 = np.array([test_point2])
+    test_point2 = torch.from_numpy(test_point2).float()
 
-    shap_explainer.library_shap_values(batch[0])
-
-    # test_point = np.zeros((1,64600))
-    # test_point = torch.from_numpy(test_point).to(dtype=torch.float32)
-
-    # for w in range(5):
-    #     shap_explainer.shap_values(100, w, test_point)
+    logging.info('Output 1: {}'.format(model(test_point)[0][1].item()))
+    logging.info('Output 2: {}'.format(model(test_point2)[0][1].item()))
