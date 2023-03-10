@@ -12,7 +12,12 @@ biggest effect on the classifiers decision. Note that this solution only works f
 audio clips of ~ 4 secs. Further work would include zero-padding the inputs to
 allow the solution to work with all clips in the data set.
 
-To use you must have a trained Rawnet2 baseline system - *trained_model.pth*
+To use this model you must have the following files in the same directory:
+- *trained_model.pth*
+- From part00 of the [dataset](https://zenodo.org/record/4835108#.ZAs4mC-l3S5)
+*ASVspoof2021_DF_eval* and *ASVspoof_DF_cm_protocols*
+- From the [eval\_package](https://github.com/asvspoof-challenge/2021/tree/main/eval-package)
+*score.txt* and *trial_metadata.txt*
 
 To run:
 ```
