@@ -3,6 +3,7 @@ import math
 import random
 import sys
 from copy import deepcopy
+from datetime import datetime
 
 import librosa
 import matplotlib.pyplot as plt
@@ -14,8 +15,9 @@ from sklearn.metrics import f1_score
 
 from setup_model import load_model
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s : %(message)s",
-                    datefmt="%I:%M:%S %p", )
+test_file = datetime.now().strftime('test_%H:%M.log')
+logging.basicConfig(filename=test_file, level=logging.INFO, format="%(asctime)s - %(levelname)s : %(message)s",
+                    datefmt="%I:%M:%S %p")
 
 
 def get_rand_idx(data_size):
@@ -37,9 +39,9 @@ def get_audio_length(file):
 
 def replace(n, to_tensor, rand_inst):
     """
-        @n : int, the time window to replace
-        @to_tensor : torch.Tensor, the tensor used in the Shapley value equation
-        @rand_inst : torch.Tensor, the random data point used in the Monte Carlo Approx.
+        @param n : int, the time window to replace
+        @param to_tensor : torch.Tensor, the tensor used in the Shapley value equation
+        @param rand_inst : torch.Tensor, the random data point used in the Monte Carlo Approx.
 
         @return : torch.Tensor, the 
     """
@@ -94,9 +96,9 @@ def find_threshold():
 
 def evaluate_threshold(threshold):
     """
-        @threshold : int, threshold for LLR score
-        @scores : list, scores from the classifier
-        @labels : list, ground truth labels
+        @param threshold : int, threshold for LLR score
+        @param scores : list, scores from the classifier
+        @param labels : list, ground truth labels
 
         PRECISION-RECALL CURVE FOR THE GIVEN THRESHOLD
         Classifier outputs a soft classification (LLR)
@@ -150,22 +152,25 @@ def create_test_set(vocoder_type, n):
                     count += 1
 
 
-def model_prediction_avg(scores):
+def model_prediction_avg(scores, test_set):
     """
-        @scores : pd.DataFrame, list of scores
+        @param scores : pd.DataFrame, list of scores
 
         @return : the avg. model prediction for all data points in the batch
 
         Helper function for evaluating the EFFICIENT property of Shapley values
+        Only for TEST SET
     """
 
-    return scores['score'].mean()
+    merged = pd.merge(scores, test_set, on=['trialID'])
+
+    return merged['score'].mean()
 
 
 def model_prediction(scores, clip):
     """
-        @scores : pd.DataFrame, list of scores
-        @clip : string, ID of audio clip
+        @param scores : pd.DataFrame, list of scores
+        @param clip : string, ID of audio clip
 
         @return : float, model prediction for said clip
 
@@ -175,13 +180,11 @@ def model_prediction(scores, clip):
     return scores.loc[scores['trialID'] == clip]['score'].item()
 
 
-
-
 def plot_horizontal(name, windows, values):
     """
-        @name : string, name of audio clip
-        @windows : list, of windows (0..5)
-        @values : list, shapley values for given windows
+        @param name : string, name of audio clip
+        @param windows : list, of windows (0..5)
+        @param values : list, shapley values for given windows
 
         @return : graph, horizontal bar chart (red = neg, blue = pos)
     """
@@ -200,9 +203,9 @@ def plot_horizontal(name, windows, values):
 
 def plot_waveform(name, audio, values):
     """
-        @name : string, name of audio clip
-        @audio : np.array, float array representation of the audio
-        @values : list, Shapley values for given windows
+        @param name : string, name of audio clip
+        @param audio : np.array, float array representation of the audio
+        @param values : list, Shapley values for given windows
 
         @return : graph, waveform diagram with most significant window highlighted
 
@@ -228,16 +231,16 @@ def plot_waveform(name, audio, values):
 # TODO
 def plot_verbal(name, values):
     """
-        @name : string, name of audio clip
-        @values: list, Shapley values for the given clip
+        @param name : string, name of audio clip
+        @param values: list, Shapley values for the given clip
     """
     pass
 
 
 class Explainer:
     """
-        @model : torch.nn.Module, pre-trained pytorch model
-        @data_set : torch.utils.Dataset, the test set
+        @param model : torch.nn.Module, pre-trained pytorch model
+        @param data_set : torch.utils.Dataset, the test set
 
         Provides post-hoc explanation for a pytorch model
 
@@ -258,10 +261,10 @@ class Explainer:
 
     def shap_values(self, no_of_iterations, window, data_point, device):
         """
-            @no_of_iterations : int, recommended to be between 100 - 1000
-            @window : int, no. between 0 and 4 (audio clip is divided into 5 windows)
-            @data_point : torch.Tensor, the data point in question
-            @device : torch.device, if cuda gpu available it improves speed of the model
+            @param no_of_iterations : int, recommended to be between 100 - 1000
+            @param window : int, no. between 0 and 4 (audio clip is divided into 5 windows)
+            @param data_point : torch.Tensor, the data point in question
+            @param device : torch.device, if cuda gpu available it improves speed of the model
 
             @return : float, Shapley value for given window
 
@@ -277,8 +280,7 @@ class Explainer:
             6. Return the mean marginal contribution
         """
 
-        logging.info('Iterate {0} times Window {1}'.format(
-            no_of_iterations, window))
+        # logging.info('Iterate {0} times Window {1}'.format(no_of_iterations, window))
         feature_indices = [0, 1, 2, 3, 4]
         data_size = self.get_size()
         marginal_contributions = []
@@ -315,19 +317,21 @@ class Explainer:
             marginal_contributions.append(marginal_contribution)
 
         shap_val = sum(marginal_contributions) / len(marginal_contributions)
-        logging.info('Shapley value: {}'.format(shap_val))
+        # logging.info('Shapley value: {}'.format(shap_val))
 
         return shap_val
 
-    def average_error_margin(self, n, labels, scores, device):
+    def average_percent_error(self, n, labels, scores, test_set, device):
         """
-            @n : int, no. of iterations for Monte Carlo approx.
-            @labels : list, names of the audio clips in data set
+            @param n : int, no. of iterations for Monte Carlo approx.
+            @param labels : list, names of the audio clips in data set
+            @param scores : pd.DataFrame, list of scores
+            @param test_set : pd.DataFrame, list of test set points
+            @param device : torch.Device, to optimise model predictions
 
-            Returns the average margin of error for the EFFICIENT property of
-            Shapley values for a given no. of iterations
+            @return : float, Average percentage error for the efficient property of Shapley values
         """
-        avg = model_prediction_avg(scores)
+        avg = model_prediction_avg(scores, test_set)
         sums = []
         preds = []
 
@@ -337,18 +341,22 @@ class Explainer:
             preds.append(pred)
             vals = [self.shap_values(n, i, x, device) for i in range(5)]
             sums.append(sum(vals))
-        
+
         diffs = []
         for i, s in enumerate(sums):
-            diff = abs(s - (preds[i] - avg))
+            e = (preds[i] - avg) # expected value
+            logging.info('Approx. value for Clip {0} is {1}'.format(labels[i], s))
+            logging.info('Expected value for Clip {0} is {1}'.format(labels[i], e))
+            d = abs(s - e) # difference
+            diff = (d / abs(e)) * 100 # percentage error
             diffs.append(diff)
-        
+            logging.info('Percentage error for Clip {0} is {1}%'.format(labels[i], diff))
+
         avg_err = sum(diffs) / len(diffs)
-        logging.info('Average margin of error for {0} iterations: {1}'.format(n, avg_err))
+        logging.info('Average percentage error for {0} iterations: {1}%'.format(n, avg_err))
 
         return avg_err
 
-        
 
 if __name__ == '__main__':
     if len(sys.argv) < 2:
@@ -359,5 +367,7 @@ if __name__ == '__main__':
     # explainer
     shap_explainer = Explainer(model, batch)
     scores = pd.read_csv('score.txt', delimiter='\s+')
+    test_set = pd.read_csv('test_set.txt', delimiter='\s+')
 
-    shap_explainer.average_error_margin(1000, labels, scores, device)
+    # shap_explainer.average_percent_error(1000, labels, scores, test_set, device)
+    shap_explainer.average_percent_error(10, labels, scores, test_set, device)
