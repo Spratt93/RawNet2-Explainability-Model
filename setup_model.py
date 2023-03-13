@@ -35,7 +35,7 @@ def load_model(model_path):
     logging.info('No. of eval trials: {}'.format(len(file_eval)))
     eval_set = Dataset_ASVspoof2021_eval(list_IDs=file_eval, base_dir='./ASVspoof2021_DF_eval/')
 
-    data_loader = DataLoader(eval_set, batch_size=400, shuffle=False, drop_last=False)
+    data_loader = DataLoader(eval_set, batch_size=32, shuffle=False, drop_last=False)
     batch_x, utt_id = next(iter(data_loader))
 
-    return model, batch_x, utt_id
+    return model, batch_x, utt_id, device

@@ -150,31 +150,27 @@ def create_test_set(vocoder_type, n):
                     count += 1
 
 
-def model_prediction_avg():
+def model_prediction_avg(scores):
     """
-        @model : torch.nn.Module, Instance of Rawnet model
-        @batch : torch.utils.data.Dataset, Batch of size n
+        @scores : pd.DataFrame, list of scores
 
         @return : the avg. model prediction for all data points in the batch
 
         Helper function for evaluating the EFFICIENT property of Shapley values
     """
 
-    scores = pd.read_csv('score.txt', delimiter='\s+')
-
     return scores['score'].mean()
 
 
-def model_prediction(clip):
+def model_prediction(scores, clip):
     """
+        @scores : pd.DataFrame, list of scores
         @clip : string, ID of audio clip
 
         @return : float, model prediction for said clip
 
         Helper function for testing
     """
-
-    scores = pd.read_csv('score.txt', delimiter='\s+')
 
     return scores.loc[scores['trialID'] == clip]['score'].item()
 
@@ -260,11 +256,12 @@ class Explainer:
 
         return data_set_size
 
-    def shap_values(self, no_of_iterations, window, data_point):
+    def shap_values(self, no_of_iterations, window, data_point, device):
         """
             @no_of_iterations : int, recommended to be between 100 - 1000
             @window : int, no. between 0 and 4 (audio clip is divided into 5 windows)
             @data_point : torch.Tensor, the data point in question
+            @device : torch.device, if cuda gpu available it improves speed of the model
 
             @return : float, Shapley value for given window
 
@@ -307,6 +304,8 @@ class Explainer:
             x_without_window = np.array([x_without_window])
             x_with_window = torch.from_numpy(x_with_window)
             x_without_window = torch.from_numpy(x_without_window)
+            x_with_window = x_with_window.to(device)
+            x_without_window = x_without_window.to(device)
 
             # snd dim of softmax is used as LLR
             pred_1 = self.model(x_with_window)[0][1].item()
@@ -320,7 +319,7 @@ class Explainer:
 
         return shap_val
 
-    def average_error_margin(self, n, labels):
+    def average_error_margin(self, n, labels, scores, device):
         """
             @n : int, no. of iterations for Monte Carlo approx.
             @labels : list, names of the audio clips in data set
@@ -328,15 +327,15 @@ class Explainer:
             Returns the average margin of error for the EFFICIENT property of
             Shapley values for a given no. of iterations
         """
-        avg = model_prediction_avg()
+        avg = model_prediction_avg(scores)
         sums = []
         preds = []
 
         for i, x in enumerate(self.data_set):
             clip = labels[i]
-            pred = model_prediction(clip)
+            pred = model_prediction(scores, clip)
             preds.append(pred)
-            vals = [self.shap_values(n, i, x) for i in range(5)]
+            vals = [self.shap_values(n, i, x, device) for i in range(5)]
             sums.append(sum(vals))
         
         diffs = []
@@ -355,18 +354,10 @@ if __name__ == '__main__':
     if len(sys.argv) < 2:
         raise TypeError('Trained model not provided...')
 
-    model, batch, labels = load_model(sys.argv[1])
+    model, batch, labels, device = load_model(sys.argv[1])
 
     # explainer
     shap_explainer = Explainer(model, batch)
-    zeros = np.zeros(12920).tolist()
-    ones = np.ones(51680).tolist()
-    test_point = ones + zeros
-    test_point2 = np.array([test_point2])
-    test_point2 = torch.from_numpy(test_point2).float()
-    test_point2 = zeros + ones
-    test_point2 = np.array([test_point2])
-    test_point2 = torch.from_numpy(test_point2).float()
+    scores = pd.read_csv('score.txt', delimiter='\s+')
 
-    logging.info('Output 1: {}'.format(model(test_point)[0][1].item()))
-    logging.info('Output 2: {}'.format(model(test_point2)[0][1].item()))
+    shap_explainer.average_error_margin(1000, labels, scores, device)
