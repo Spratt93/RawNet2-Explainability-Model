@@ -339,17 +339,17 @@ class Explainer:
             clip = labels[i]
             pred = model_prediction(scores, clip)
             preds.append(pred)
-            vals = [self.shap_values(n, i, x, device) for i in range(5)]
+            vals = [abs(self.shap_values(n, i, x, device)) for i in range(5)]
             sums.append(sum(vals))
 
         diffs = []
         for i, s in enumerate(sums):
-            e = (preds[i] - avg) # expected value
+            e = abs(preds[i] - avg) # expected value
+            d = s - e # difference
+            diff = abs(d / e) * 100 # percentage error
+            diffs.append(diff)
             logging.info('Approx. value for Clip {0} is {1}'.format(labels[i], s))
             logging.info('Expected value for Clip {0} is {1}'.format(labels[i], e))
-            d = abs(s - e) # difference
-            diff = (d / abs(e)) * 100 # percentage error
-            diffs.append(diff)
             logging.info('Percentage error for Clip {0} is {1}%'.format(labels[i], diff))
 
         avg_err = sum(diffs) / len(diffs)
@@ -369,5 +369,4 @@ if __name__ == '__main__':
     scores = pd.read_csv('score.txt', delimiter='\s+')
     test_set = pd.read_csv('test_set.txt', delimiter='\s+')
 
-    # shap_explainer.average_percent_error(1000, labels, scores, test_set, device)
     shap_explainer.average_percent_error(10, labels, scores, test_set, device)
