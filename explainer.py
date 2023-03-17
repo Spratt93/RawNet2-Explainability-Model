@@ -12,10 +12,11 @@ import pandas as pd
 import torch
 from sklearn.metrics import confusion_matrix
 from sklearn.metrics import f1_score
+from shap import KernelExplainer
 
 from setup_model import load_model
 
-test_file = datetime.now().strftime('test_%H:%M.log')
+test_file = datetime.now().strftime('test-%H:%M.log')
 logging.basicConfig(filename=test_file, level=logging.INFO, format="%(asctime)s - %(levelname)s : %(message)s",
                     datefmt="%I:%M:%S %p")
 
@@ -43,10 +44,10 @@ def replace(n, to_tensor, rand_inst):
         @param to_tensor : torch.Tensor, the tensor used in the Shapley value equation
         @param rand_inst : torch.Tensor, the random data point used in the Monte Carlo Approx.
 
-        @return : torch.Tensor, the 
+        @return : torch.Tensor, the tensor with random sampling applied
     """
-    end_slice = int((n + 1) * 12920)  # audio is normalised to arr of len 64600
-    begin_slice = int(end_slice - 12920)
+    end_slice = int((n + 1) * 8075)  # audio is normalised to arr of len 64600
+    begin_slice = int(end_slice - 8075)
     to_tensor[begin_slice:end_slice] = rand_inst[begin_slice:end_slice]
 
     return to_tensor
@@ -259,6 +260,35 @@ class Explainer:
 
         return data_set_size
 
+    def segmented_data(self):
+        # Model expecting tensor of shape: n, 64600
+        # Background set has to have these made up features
+        # Could have a 5-tuple with the
+
+        data = self.data_set  # tensor
+        data = data.numpy()  # np arr
+        out = []
+        for d in data:
+            windows = []  # 5 instances with each having a window zeroed out
+            for w in range(5):
+                end_slice = int((w + 1) * 12920)
+                begin_slice = int(end_slice - 12920)
+                d[begin_slice:end_slice] = np.zeros(12920)
+                windows.append(d)
+
+            out.append(np.array(windows))
+
+        return np.array(out)
+
+    def library_shap_values(self):
+        """
+            1. Segment the audio into 5 windows
+            2. Have to use masking to create the effect of feature not being present
+                2.1 Zero-out feature that is missing
+        """
+        # f = lambda x: self.model(torch.from_numpy(x))
+        # kernel_exp = KernelExplainer(f, self.segmented_data())
+
     def shap_values(self, no_of_iterations, window, data_point, device):
         """
             @param no_of_iterations : int, recommended to be between 100 - 1000
@@ -344,9 +374,9 @@ class Explainer:
 
         diffs = []
         for i, s in enumerate(sums):
-            e = abs(preds[i] - avg) # expected value
-            d = s - e # difference
-            diff = abs(d / e) * 100 # percentage error
+            e = abs(preds[i] - avg)  # expected value
+            d = s - e  # difference
+            diff = abs(d / e) * 100  # percentage error
             diffs.append(diff)
             logging.info('Approx. value for Clip {0} is {1}'.format(labels[i], s))
             logging.info('Expected value for Clip {0} is {1}'.format(labels[i], e))
@@ -366,7 +396,4 @@ if __name__ == '__main__':
 
     # explainer
     shap_explainer = Explainer(model, batch)
-    scores = pd.read_csv('score.txt', delimiter='\s+')
-    test_set = pd.read_csv('test_set.txt', delimiter='\s+')
-
-    shap_explainer.average_percent_error(10, labels, scores, test_set, device)
+    model()
