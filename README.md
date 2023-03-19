@@ -1,4 +1,4 @@
-# Explainability model for Rawnet2
+# Explainability model for Rawnet2 :mag_right:
 
 Designed to work with the [Rawnet2 baseline system](https://github.com/asvspoof-challenge/2021/tree/main/DF/Baseline-RawNet2)
 from the ASVspoof challenge 2021. It is a black-box model that classifies audio 
@@ -12,12 +12,12 @@ largest effect on the classifier's decision. Note that this solution only works 
 audio clips of ~ 4 secs. Further work would include zero-padding the inputs to
 allow the solution to work with all clips in the data set.
 
-To use this model you must have the following files in the same directory:
-- *trained_model.pth*
-- From part00 of the [dataset](https://zenodo.org/record/4835108#.ZAs4mC-l3S5)
-*ASVspoof2021_DF_eval* and *ASVspoof_DF_cm_protocols*
-- From the [eval\_package](https://github.com/asvspoof-challenge/2021/tree/main/eval-package)
-*score.txt* and *trial_metadata.txt*
+To use this model you must have a pre-trained Rawnet2 model *trained_model.pth*
+
+The *ASVspoof2021_eval.zip* is the test set - which is an even split of 
+bona fide and spoof data points. To find out more, read the *trial_metadata.txt*
+file from the [keys and metalabels](https://www.asvspoof.org/asvspoof2021/DF-keys-full.tar.gz)
+package.
 
 To run:
 ```
