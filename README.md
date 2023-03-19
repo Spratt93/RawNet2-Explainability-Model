@@ -15,9 +15,7 @@ allow the solution to work with all clips in the data set.
 To use this model you must have a pre-trained Rawnet2 model *trained_model.pth*
 
 The *ASVspoof2021_eval.zip* is the test set - which is an even split of 
-bona fide and spoof data points. To find out more, read the *trial_metadata.txt*
-file from the [keys and metalabels](https://www.asvspoof.org/asvspoof2021/DF-keys-full.tar.gz)
-package.
+bona fide and spoof data points. To find out more, read *trial_metadata.txt*
 
 To run:
 ```
