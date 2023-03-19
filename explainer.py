@@ -16,7 +16,7 @@ from sklearn.metrics import f1_score
 from setup_model import load_model
 
 test_file = datetime.now().strftime('test-%H:%M.log')
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s : %(message)s",
+logging.basicConfig(filename=test_file, level=logging.INFO, format="%(asctime)s - %(levelname)s : %(message)s",
                     datefmt="%I:%M:%S %p")
 
 
@@ -219,15 +219,18 @@ def plot_waveform(name, audio, values):
     x = np.linspace(0, time, num=duration)
 
     significant_val = max(values)
+    logging.info('Shapley values: {}'.format(values))
+    logging.info('Largest Shapley value: {}'.format(significant_val))
     index = values.index(significant_val)
     end_slice = round((index + 1) * (duration / 5))
     begin_slice = round(end_slice - (duration / 5))
+    logging.info('Begin slice: {0} End Slice: {1}'.format(begin_slice, end_slice))
 
     plt.plot(x[begin_slice:end_slice], audio[begin_slice:end_slice], color='r')
-    plt.plot(x[:begin_slice], audio[:begin_slice])
-    plt.plot(x[end_slice:], audio[end_slice:])
+    plt.plot(x[:begin_slice], audio[:begin_slice], color='b')
+    plt.plot(x[end_slice:], audio[end_slice:], color='b')
     plt.xlabel('time')
-    plt.savefig('{}.png'.format(name))
+    plt.savefig('./{}.png'.format(name))
 
 
 # TODO
@@ -340,20 +343,23 @@ class Explainer:
         sums = []
         preds = []
 
-        for ind, s in enumerate(scores):
+        for i, s in enumerate(scores):
             preds.append(s)
-            vals = [abs(self.shap_values(n, i, self.data_set[ind], device)) for i in range(5)]
+            vals = [abs(self.shap_values(n, w, self.data_set[i], device)) for w in range(5)]
             sums.append(sum(vals))
 
         diffs = []
         for i, s in enumerate(sums):
-            e = abs(preds[i] - avg)  # expected value
+            l = labels[i]
+            p = preds[i]
+            e = abs(p - avg)  # expected value
             d = s - e
             diff = abs(d / e) * 100  # percentage error
             diffs.append(diff)
-            logging.info('Approx. value for Clip {0} is {1}'.format(labels[i], s))
-            logging.info('Expected value for Clip {0} is {1}'.format(labels[i], e))
-            logging.info('Percentage error for Clip {0} is {1}%'.format(labels[i], diff))
+            logging.info('Approx. value for Clip {0} is {1}'.format(l, s))
+            logging.info('Model prediction for Clip {0} is {1}'.format(l, p))
+            logging.info('Expected value for Clip {0} is {1}'.format(l, e))
+            logging.info('Percentage error for Clip {0} is {1}%'.format(l, diff))
 
         avg_err = sum(diffs) / len(diffs)
         logging.info('Average percentage error for {0} iterations: {1}%'.format(n, avg_err))
@@ -369,4 +375,15 @@ if __name__ == '__main__':
 
     shap_explainer = Explainer(model, batch)
 
-    shap_explainer.average_percent_error(100, labels, device)
+    for i, b in enumerate(batch):
+        name = labels[i]
+        test_file = librosa.load('./ASVspoof2021_DF_eval/flac/{}.flac'.format(name), sr=16000)
+        (audio, _) = test_file
+        vals = [shap_explainer.shap_values(1000, w, b, device) for w in range(5)]
+        plot_waveform(name, audio, vals)
+
+
+    # shap_explainer.average_percent_error(250, labels, device)
+    # shap_explainer.average_percent_error(500, labels, device)
+    # shap_explainer.average_percent_error(750, labels, device)
+    # shap_explainer.average_percent_error(1000, labels, device)
