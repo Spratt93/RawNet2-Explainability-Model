@@ -345,6 +345,9 @@ class Explainer:
             @param device : torch.Device, Supports CUDA optimisation
 
             @return : float, Average percentage error for the efficient property of Shapley values
+
+            The efficient property simply means that the prediction is divided
+            amongst the features
         """
         batch_in = self.data_set.to(device)
         batch_out = self.model(batch_in)  # returns a 60 dimensional tensor
@@ -390,8 +393,7 @@ class Explainer:
 
             Reverse engineering the symmetry property
             If a given data point has 2 Shapley values that are similar ( +-0.1 )
-            Then the contributions of those 2 windows should be similar
-            Return the percentage difference between those 2 values
+            Then the expected contribution of those 2 windows should be similar
         """
         
         window = None
@@ -402,14 +404,14 @@ class Explainer:
                     window = i
                     window1 = i1
         if not window:
-            logging.info('There we no Shapley values close enough...')
+            logging.info('There were no Shapley values similar enough to test symmetry...')
             return 
             
         feature_indices = [0, 1, 2, 3, 4]
         data_size = self.get_size()
         errors = []
 
-        for _ in range(no_of_iterations):
+        for _ in range(n):
             rand_idx = get_rand_idx(data_size)
             rand_instance = self.data_set[rand_idx]
 
@@ -426,7 +428,7 @@ class Explainer:
                 x_with_j = replace(x, x_with_j, rand_instance)
 
             for x1 in x1_idx:
-                x_with_k = replace(x, x_with_k, rand_instance)
+                x_with_k = replace(x1, x_with_k, rand_instance)
 
             x_with_j = np.array([x_with_j])
             x_with_k = np.array([x_with_k])
@@ -436,10 +438,10 @@ class Explainer:
             x_with_k = x_with_k.to(device)
 
             # snd dim of softmax is used as LLR
-            pred = abs(self.model(x_with_j)[0][1].item())
-            pred_1 = abs(self.model(x_with_k)[0][1].item())
+            pred_j = abs(self.model(x_with_j)[0][1].item())
+            pred_k = abs(self.model(x_with_k)[0][1].item())
 
-            e = (abs(pred - pred_1) / ((pred + pred_1) / 2)) * 100
+            e = (abs(pred_j - pred_k) / ((pred_j + pred_k) / 2)) * 100
             errors.append(e)
 
         percent_err = sum(errors) / len(errors)
@@ -447,10 +449,8 @@ class Explainer:
 
         return percent_err
 
-
-
         
-    def dummy_test(self):
+    def dummy_test(self, vals):
         """
             @param 
 
@@ -458,8 +458,60 @@ class Explainer:
             Look for Shapley values that are zero
             If so should have a marginal contribution of 0
         """
-        pass
 
+        zero_val = None
+        for v in vals:
+            if abs(v) < 0.1:
+                zero_val = v
+
+        if not zero_val:
+            logging.info('No Shapley value that is close enough to zero...')
+            return
+
+        # do the with and without j computation
+        feature_indices = [0, 1, 2, 3, 4]
+        data_size = self.get_size()
+        marginal_contributions = []
+
+        for _ in range(no_of_iterations):
+            rand_idx = get_rand_idx(data_size)
+            rand_instance = self.data_set[rand_idx]
+
+            rand_subset_size = get_rand_subset_size(feature_indices)
+            x_idx = get_rand_subset(feature_indices, rand_subset_size, [window])
+
+            x_with_window = deepcopy(data_point)
+            x_with_window = x_with_window.numpy()
+            x_without_window = deepcopy(data_point)
+            x_without_window = x_without_window.numpy()
+
+            for x in x_idx:
+                x_with_window = replace(x, x_with_window, rand_instance)
+                x_without_window = replace(x, x_without_window, rand_instance)
+            x_without_window = replace(window, x_without_window, rand_instance)
+
+            x_with_window = np.array([x_with_window])
+            x_without_window = np.array([x_without_window])
+            x_with_window = torch.from_numpy(x_with_window)
+            x_without_window = torch.from_numpy(x_without_window)
+            x_with_window = x_with_window.to(device)
+            x_without_window = x_without_window.to(device)
+
+            # snd dim of softmax is used as LLR
+            pred_1 = self.model(x_with_window)[0][1].item()
+            pred_2 = self.model(x_without_window)[0][1].item()
+
+            marginal_contribution = pred_1 - pred_2
+            marginal_contributions.append(marginal_contribution)
+
+        shap_val = sum(marginal_contributions) / len(marginal_contributions)
+        # logging.info('Shapley value: {}'.format(shap_val))
+
+        return shap_val
+
+
+        
+        
 
 
 if __name__ == '__main__':
@@ -470,12 +522,4 @@ if __name__ == '__main__':
 
     shap_explainer = Explainer(model, batch)
 
-    # for i in range(26, len(batch)):
-    #     name = labels[i]
-    #     test_file = librosa.load('./ASVspoof2021_DF_eval/flac/{}.flac'.format(name), sr=16000)
-    #     (audio, _) = test_file
-    #     vals = [shap_explainer.shap_values(1000, w, batch[i], device) for w in range(5)]
-    #     plot_waveform(name, audio, vals)
-
     shap_explainer.efficiency_error(750, labels, device)
-    shap_explainer.efficiency_error(1000, labels, device)
