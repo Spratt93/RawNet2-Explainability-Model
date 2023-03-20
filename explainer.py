@@ -298,26 +298,31 @@ class Explainer:
         """
 
         # logging.info('Iterate {0} times Window {1}'.format(no_of_iterations, window))
-        feature_indices = [0, 1, 2, 3, 4]
         data_size = self.get_size()
         marginal_contributions = []
 
         for _ in range(no_of_iterations):
+            feature_indices = [0, 1, 2, 3, 4]
             rand_idx = get_rand_idx(data_size)
             rand_instance = self.data_set[rand_idx]
+            random.shuffle(feature_indices)  # creates random permutation
 
-            rand_subset_size = get_rand_subset_size(feature_indices)
-            x_idx = get_rand_subset(feature_indices, rand_subset_size, [window])
+            x_with_j = np.array(64600)
+            x_without_j = np.array(64600)
+            sample_rand = False
+            for f in feature_indices:
+                if f == window:
+                    replace(f, x_with_j, data_point)
+                    replace(f, x_without_j, rand_instance)
+                    sample_rand = True
+                    
+                if sample_rand:
+                    replace(f, x_with_j, rand_instance)
+                    replace(f, x_without_j, rand_instance)
 
-            x_with_window = deepcopy(data_point)
-            x_with_window = x_with_window.numpy()
-            x_without_window = deepcopy(data_point)
-            x_without_window = x_without_window.numpy()
-
-            for x in x_idx:
-                x_with_window = replace(x, x_with_window, rand_instance)
-                x_without_window = replace(x, x_without_window, rand_instance)
-            x_without_window = replace(window, x_without_window, rand_instance)
+                else:
+                    replace(f, x_with_j, data_point)
+                    replace(f, x_without_j, data_point)
 
             x_with_window = np.array([x_with_window])
             x_without_window = np.array([x_without_window])
