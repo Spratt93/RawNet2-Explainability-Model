@@ -14,8 +14,14 @@ allow the solution to work with all clips in the data set.
 
 To use this model you must have a pre-trained Rawnet2 model *trained_model.pth*
 
-The *ASVspoof2021_eval.zip* is the test set - which is an even split of 
-bona fide and spoof data points. To find out more, read *trial_metadata.txt*
+The test set is an even split of bona fide and spoofed audio. It is
+standardised to the `low_mp3` codec and contains 3 vocoders:
+- `traditional_vocoder`
+- `waveform_concatenation`
+- `neural_vocoder_autoregressive`
+
+To find out more about the properties of the test set take a look at
+*trial_metadata.txt*
 
 To run:
 ```
