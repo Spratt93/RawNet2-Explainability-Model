@@ -28,8 +28,8 @@ def get_rand_subset_size(feature_indices):
     return random.randint(1, len(feature_indices) - 1)
 
 
-def get_rand_subset(features, rand_subset_size, window):
-    features_minus_window = [f for f in features if f != window]
+def get_rand_subset(features, rand_subset_size, windows):
+    features_minus_window = [f for f in features if f not in windows]
     return sorted(random.sample(features_minus_window, rand_subset_size))
 
 
@@ -45,6 +45,7 @@ def replace(n, to_tensor, rand_inst):
 
         @return : torch.Tensor, the
     """
+
     end_slice = int((n + 1) * 12920)  # audio is normalised to arr of len 64600
     begin_slice = int(end_slice - 12920)
     to_tensor[begin_slice:end_slice] = rand_inst[begin_slice:end_slice]
@@ -52,14 +53,17 @@ def replace(n, to_tensor, rand_inst):
     return to_tensor
 
 
-def confidence_level(model_output):
+def confidence_level(clip_id, model_output):
     """
         PROBABILITY OF BELONGING TO POSITIVE CLASS
         Classifier outputs a LLR score
         LLR = log(Pos. Likelihood Ratio - Neg. Likelihood ratio)
     """
 
-    return 1 / (1 + math.exp(-model_output))
+    p = 1 / (1 + math.exp(-model_output))
+    logging.info('Probability of being bona fide for Clip {0} is: {1}'.format(clip_id, p))
+
+    return p
 
 
 def find_threshold():
@@ -100,7 +104,7 @@ def evaluate_threshold(threshold):
         @param scores : list, scores from the classifier
         @param labels : list, ground truth labels
 
-        PRECISION-RECALL CURVE FOR THE GIVEN THRESHOLD
+        EVALUATES THE OPTIMAL DECISION BOUNDARY FOR HARD CLASSIFICATION
         Classifier outputs a soft classification (LLR)
         Note: Best f1 score ~ -1.5 - even tho mid ~ -6.5
     """
@@ -125,11 +129,12 @@ def evaluate_threshold(threshold):
         else:
             predictions.append('spoof')
 
-    logging.info('confusion matrix: {}'.format(
-        confusion_matrix(labels_list, predictions)))
+    conf_mat = confusion_matrix(labels_list, predictions) 
+    f1 = f1_score(labels_list, predictions, pos_label='spoof')
+    logging.info('Confusion matrix for threshold {0}: {1}'.format(threshold, conf_mat))
+    logging.info('F1 score for threshold {0}: {1}'.format(threshold, f1))
 
-    return 'f1 score for threshold {0} is: {1}'.format(threshold,
-                                                       f1_score(labels_list, predictions, pos_label='spoof'))
+    return f1
 
 
 def create_test_set(vocoder_type, n):
@@ -201,6 +206,7 @@ def plot_horizontal(name, windows, values):
     plt.xlabel('Shapley value')
     plt.title('Horizontal plot')
     plt.savefig('{}.png'.format(name))
+    plt.close()  # prevent graph glitching
 
 
 def plot_waveform(name, audio, values):
@@ -225,12 +231,14 @@ def plot_waveform(name, audio, values):
     end_slice = round((index + 1) * (duration / 5))
     begin_slice = round(end_slice - (duration / 5))
     logging.info('Begin slice: {0} End Slice: {1}'.format(begin_slice, end_slice))
+    begin_slice = begin_slice * (1/16000)
+    end_slice = end_slice * (1/16000)
 
-    plt.plot(x[begin_slice:end_slice], audio[begin_slice:end_slice], color='r')
-    plt.plot(x[:begin_slice], audio[:begin_slice], color='b')
-    plt.plot(x[end_slice:], audio[end_slice:], color='b')
+    plt.plot(x, audio, color='b')
+    plt.axvspan(begin_slice, end_slice, color='r', alpha=0.5)
     plt.xlabel('time')
-    plt.savefig('./{}.png'.format(name))
+    plt.savefig('./plots/{}.png'.format(name))
+    plt.close()  # prevent graph glitching
 
 
 # TODO
@@ -239,6 +247,10 @@ def plot_verbal(name, values):
         @param name : string, name of audio clip
         @param values: list, Shapley values for the given clip
     """
+    pass
+
+# TODO
+def plot_3D():
     pass
 
 
@@ -295,7 +307,7 @@ class Explainer:
             rand_instance = self.data_set[rand_idx]
 
             rand_subset_size = get_rand_subset_size(feature_indices)
-            x_idx = get_rand_subset(feature_indices, rand_subset_size, window)
+            x_idx = get_rand_subset(feature_indices, rand_subset_size, [window])
 
             x_with_window = deepcopy(data_point)
             x_with_window = x_with_window.numpy()
@@ -326,7 +338,7 @@ class Explainer:
 
         return shap_val
 
-    def average_percent_error(self, n, labels, device):
+    def efficiency_error(self, n, labels, device):
         """
             @param n : int, no. of iterations for Monte Carlo approx.
             @param labels : list, names of the audio clips in data set
@@ -367,6 +379,89 @@ class Explainer:
         return avg_err
 
 
+    def symmetry_error(self, n, data_point, vals, device):
+        """
+            @param n : int, no of iterations for approximation
+            @param data_point : torch.Tensor, point in question
+            @param vals : list, Shapley values for given data point
+            @param device : for CUDA optimisation
+
+            @return : float, percentage error for symmetry property of Shapley values
+
+            Reverse engineering the symmetry property
+            If a given data point has 2 Shapley values that are similar ( +-0.1 )
+            Then the contributions of those 2 windows should be similar
+            Return the percentage difference between those 2 values
+        """
+        
+        window = None
+        window1 = None
+        for i, v in enumerate(vals):
+            for i1, v1 in enumerate(vals):
+                if abs(v - v1) < 0.1 and i != i1:
+                    window = i
+                    window1 = i1
+        if not window:
+            logging.info('There we no Shapley values close enough...')
+            return 
+            
+        feature_indices = [0, 1, 2, 3, 4]
+        data_size = self.get_size()
+        errors = []
+
+        for _ in range(no_of_iterations):
+            rand_idx = get_rand_idx(data_size)
+            rand_instance = self.data_set[rand_idx]
+
+            rand_subset_size = get_rand_subset_size(feature_indices)
+            x_idx = get_rand_subset(feature_indices, rand_subset_size, [window, window1])
+            x1_idx = get_rand_subset(feature_indices, rand_subset_size, [window, window1])
+
+            x_with_j = deepcopy(data_point)
+            x_with_j = x_with_window.numpy()
+            x_with_k= deepcopy(data_point)
+            x_with_k = x_without_window.numpy()
+
+            for x in x_idx:
+                x_with_j = replace(x, x_with_j, rand_instance)
+
+            for x1 in x1_idx:
+                x_with_k = replace(x, x_with_k, rand_instance)
+
+            x_with_j = np.array([x_with_j])
+            x_with_k = np.array([x_with_k])
+            x_with_j = torch.from_numpy(x_with_j)
+            x_with_k = torch.from_numpy(x_with_k)
+            x_with_j = x_with_j.to(device)
+            x_with_k = x_with_k.to(device)
+
+            # snd dim of softmax is used as LLR
+            pred = abs(self.model(x_with_j)[0][1].item())
+            pred_1 = abs(self.model(x_with_k)[0][1].item())
+
+            e = (abs(pred - pred_1) / ((pred + pred_1) / 2)) * 100
+            errors.append(e)
+
+        percent_err = sum(errors) / len(errors)
+        logging.info('Average percentage error for {0} iterations: {1}%'.format(n, percent_err))
+
+        return percent_err
+
+
+
+        
+    def dummy_test(self):
+        """
+            @param 
+
+            Reverse engineer the dummy property
+            Look for Shapley values that are zero
+            If so should have a marginal contribution of 0
+        """
+        pass
+
+
+
 if __name__ == '__main__':
     if len(sys.argv) < 2:
         raise TypeError('Trained model not provided...')
@@ -375,15 +470,12 @@ if __name__ == '__main__':
 
     shap_explainer = Explainer(model, batch)
 
-    for i, b in enumerate(batch):
-        name = labels[i]
-        test_file = librosa.load('./ASVspoof2021_DF_eval/flac/{}.flac'.format(name), sr=16000)
-        (audio, _) = test_file
-        vals = [shap_explainer.shap_values(1000, w, b, device) for w in range(5)]
-        plot_waveform(name, audio, vals)
+    # for i in range(26, len(batch)):
+    #     name = labels[i]
+    #     test_file = librosa.load('./ASVspoof2021_DF_eval/flac/{}.flac'.format(name), sr=16000)
+    #     (audio, _) = test_file
+    #     vals = [shap_explainer.shap_values(1000, w, batch[i], device) for w in range(5)]
+    #     plot_waveform(name, audio, vals)
 
-
-    # shap_explainer.average_percent_error(250, labels, device)
-    # shap_explainer.average_percent_error(500, labels, device)
-    # shap_explainer.average_percent_error(750, labels, device)
-    # shap_explainer.average_percent_error(1000, labels, device)
+    shap_explainer.efficiency_error(750, labels, device)
+    shap_explainer.efficiency_error(1000, labels, device)
