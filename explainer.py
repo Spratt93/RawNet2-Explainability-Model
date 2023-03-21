@@ -16,7 +16,7 @@ from sklearn.metrics import f1_score
 from setup_model import load_model
 
 test_file = datetime.now().strftime('test-%H:%M.log')
-logging.basicConfig(filename=test_file, level=logging.INFO, format="%(asctime)s - %(levelname)s : %(message)s",
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s : %(message)s",
                     datefmt="%I:%M:%S %p")
 
 
@@ -129,7 +129,7 @@ def evaluate_threshold(threshold):
         else:
             predictions.append('spoof')
 
-    conf_mat = confusion_matrix(labels_list, predictions) 
+    conf_mat = confusion_matrix(labels_list, predictions)
     f1 = f1_score(labels_list, predictions, pos_label='spoof')
     logging.info('Confusion matrix for threshold {0}: {1}'.format(threshold, conf_mat))
     logging.info('F1 score for threshold {0}: {1}'.format(threshold, f1))
@@ -231,14 +231,14 @@ def plot_waveform(name, audio, values):
     end_slice = round((index + 1) * (duration / 5))
     begin_slice = round(end_slice - (duration / 5))
     logging.info('Begin slice: {0} End Slice: {1}'.format(begin_slice, end_slice))
-    begin_slice = begin_slice * (1/16000)
-    end_slice = end_slice * (1/16000)
+    begin_slice = begin_slice * (1 / 16000)
+    end_slice = end_slice * (1 / 16000)
 
     plt.plot(x, audio, color='b')
     plt.axvspan(begin_slice, end_slice, color='r', alpha=0.5)
     plt.xlabel('time')
     plt.savefig('./plots/{}.png'.format(name))
-    plt.close()  # prevent graph glitching
+    plt.close()  #  prevent graph glitching
 
 
 # TODO
@@ -249,7 +249,8 @@ def plot_verbal(name, values):
     """
     pass
 
-# TODO
+
+#  TODO
 def plot_3D():
     pass
 
@@ -276,9 +277,9 @@ class Explainer:
 
         return data_set_size
 
-    def shap_values(self, no_of_iterations, window, data_point, device):
+    def shap_values(self, n, window, data_point, device):
         """
-            @param no_of_iterations : int, recommended to be between 100 - 1000
+            @param n : int, recommended to be between 100 - 1000
             @param window : int, no. between 0 and 4 (audio clip is divided into 5 windows)
             @param data_point : torch.Tensor, the data point in question
             @param device : torch.device, if cuda gpu available it improves speed of the model
@@ -286,37 +287,29 @@ class Explainer:
             @return : float, Shapley value for given window
 
             MONTE-CARLO APPROXIMATION OF SHAPLEY VALUES
-            1. Pick random instance from the data set
-            2. Pick random subset of windows
-            3. Construct 2 new data instances
-                3.1 The random subset of features are replaced EXCEPT window n
-                3.2 A random number of features are replaced WITH window n
-            4. Calculate the marginal contribution
-                4.1 model(with window) - model(without window)
-            5. Repeat n times
-            6. Return the mean marginal contribution
         """
 
-        # logging.info('Iterate {0} times Window {1}'.format(no_of_iterations, window))
+        logging.info('Iterate {0} times Window {1}'.format(n, window))
+        data_point = data_point.numpy()
         data_size = self.get_size()
         marginal_contributions = []
+        feature_indices = [0, 1, 2, 3, 4]
 
-        for _ in range(no_of_iterations):
-            feature_indices = [0, 1, 2, 3, 4]
+        for _ in range(n):
+            x_with_j = np.zeros(64600)
+            x_without_j = np.zeros(64600)
             rand_idx = get_rand_idx(data_size)
             rand_instance = self.data_set[rand_idx]
             random.shuffle(feature_indices)  # creates random permutation
+            logging.info('Random permutation is {}'.format(feature_indices))
 
-            x_with_j = np.array(64600)
-            x_without_j = np.array(64600)
             sample_rand = False
             for f in feature_indices:
                 if f == window:
-                    replace(f, x_with_j, data_point)
                     replace(f, x_without_j, rand_instance)
                     sample_rand = True
-                    
-                if sample_rand:
+
+                elif sample_rand:
                     replace(f, x_with_j, rand_instance)
                     replace(f, x_without_j, rand_instance)
 
@@ -324,22 +317,23 @@ class Explainer:
                     replace(f, x_with_j, data_point)
                     replace(f, x_without_j, data_point)
 
-            x_with_window = np.array([x_with_window])
-            x_without_window = np.array([x_without_window])
-            x_with_window = torch.from_numpy(x_with_window)
-            x_without_window = torch.from_numpy(x_without_window)
-            x_with_window = x_with_window.to(device)
-            x_without_window = x_without_window.to(device)
+            x_with_j = np.array([x_with_j])
+            x_without_j = np.array([x_without_j])
+            x_with_j = torch.from_numpy(x_with_j).float()
+            x_without_j = torch.from_numpy(x_without_j).float()
+            x_with_j = x_with_j.to(device)
+            x_without_j = x_without_j.to(device)
 
             # snd dim of softmax is used as LLR
-            pred_1 = self.model(x_with_window)[0][1].item()
-            pred_2 = self.model(x_without_window)[0][1].item()
+            pred_1 = self.model(x_with_j)[0][1].item()
+            pred_2 = self.model(x_without_j)[0][1].item()
+            logging.info('Prediction with j is: {0} compared to without j: {1}'.format(pred_1, pred_2))
 
             marginal_contribution = pred_1 - pred_2
             marginal_contributions.append(marginal_contribution)
 
         shap_val = sum(marginal_contributions) / len(marginal_contributions)
-        # logging.info('Shapley value: {}'.format(shap_val))
+        logging.info('Shapley value: {}'.format(shap_val))
 
         return shap_val
 
@@ -386,7 +380,6 @@ class Explainer:
 
         return avg_err
 
-
     def symmetry_error(self, n, data_point, vals, device):
         """
             @param n : int, no of iterations for approximation
@@ -400,7 +393,7 @@ class Explainer:
             If a given data point has 2 Shapley values that are similar ( +-0.1 )
             Then the expected contribution of those 2 windows should be similar
         """
-        
+
         window = None
         window1 = None
         for i, v in enumerate(vals):
@@ -410,8 +403,8 @@ class Explainer:
                     window1 = i1
         if not window:
             logging.info('There were no Shapley values similar enough to test symmetry...')
-            return 
-            
+            return
+
         feature_indices = [0, 1, 2, 3, 4]
         data_size = self.get_size()
         errors = []
@@ -426,7 +419,7 @@ class Explainer:
 
             x_with_j = deepcopy(data_point)
             x_with_j = x_with_window.numpy()
-            x_with_k= deepcopy(data_point)
+            x_with_k = deepcopy(data_point)
             x_with_k = x_without_window.numpy()
 
             for x in x_idx:
@@ -454,7 +447,6 @@ class Explainer:
 
         return percent_err
 
-        
     def dummy_test(self, vals):
         """
             @param 
@@ -515,10 +507,6 @@ class Explainer:
         return shap_val
 
 
-        
-        
-
-
 if __name__ == '__main__':
     if len(sys.argv) < 2:
         raise TypeError('Trained model not provided...')
@@ -527,4 +515,5 @@ if __name__ == '__main__':
 
     shap_explainer = Explainer(model, batch)
 
-    shap_explainer.efficiency_error(750, labels, device)
+    for w in range(5):
+        shap_explainer.shap_values(10, w, batch[0], device)
