@@ -286,43 +286,34 @@ class Explainer:
             @return : float, Shapley value for given window
 
             MONTE-CARLO APPROXIMATION OF SHAPLEY VALUES
-            1. Pick random instance from the data set
-            2. Pick random subset of windows
-            3. Construct 2 new data instances
-                3.1 The random subset of features are replaced EXCEPT window n
-                3.2 A random number of features are replaced WITH window n
-            4. Calculate the marginal contribution
-                4.1 model(with window) - model(without window)
-            5. Repeat n times
-            6. Return the mean marginal contribution
         """
 
-        # logging.info('Iterate {0} times Window {1}'.format(no_of_iterations, window))
         feature_indices = [0, 1, 2, 3, 4]
         data_size = self.get_size()
         marginal_contributions = []
 
         for _ in range(no_of_iterations):
+            x_with_window, x_without_window = np.zeros(64600), np.zeros(64600)
             rand_idx = get_rand_idx(data_size)
             rand_instance = self.data_set[rand_idx]
-
             rand_subset_size = get_rand_subset_size(feature_indices)
             x_idx = get_rand_subset(feature_indices, rand_subset_size, [window])
 
-            x_with_window = deepcopy(data_point)
-            x_with_window = x_with_window.numpy()
-            x_without_window = deepcopy(data_point)
-            x_without_window = x_without_window.numpy()
-
-            for x in x_idx:
-                x_with_window = replace(x, x_with_window, rand_instance)
-                x_without_window = replace(x, x_without_window, rand_instance)
-            x_without_window = replace(window, x_without_window, rand_instance)
+            for f in feature_indices:
+                if f in x_idx:
+                    x_with_window = replace(f, x_with_window, rand_instance)
+                    x_without_window = replace(f, x_without_window, rand_instance)
+                elif f == window:
+                    x_with_window = replace(f, x_with_window, data_point)
+                    x_without_window = replace(f, x_without_window, rand_instance)
+                else:
+                    x_with_window = replace(f, x_with_window, data_point)
+                    x_without_window = replace(f, x_without_window, data_point)
 
             x_with_window = np.array([x_with_window])
             x_without_window = np.array([x_without_window])
-            x_with_window = torch.from_numpy(x_with_window)
-            x_without_window = torch.from_numpy(x_without_window)
+            x_with_window = torch.from_numpy(x_with_window).float()
+            x_without_window = torch.from_numpy(x_without_window).float()
             x_with_window = x_with_window.to(device)
             x_without_window = x_without_window.to(device)
 
@@ -334,7 +325,6 @@ class Explainer:
             marginal_contributions.append(marginal_contribution)
 
         shap_val = sum(marginal_contributions) / len(marginal_contributions)
-        # logging.info('Shapley value: {}'.format(shap_val))
 
         return shap_val
 
@@ -522,4 +512,8 @@ if __name__ == '__main__':
 
     shap_explainer = Explainer(model, batch)
 
-    shap_explainer.efficiency_error(750, labels, device)
+    vals = []
+    for w in range(5):
+        vals.append(shap_explainer.shap_values(10, w, batch[0], device))
+
+    logging.info('Shapley values are : {}'.format(vals))
