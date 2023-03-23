@@ -28,8 +28,8 @@ def get_rand_subset_size(feature_indices):
     return random.randint(1, len(feature_indices) - 1)
 
 
-def get_rand_subset(features, rand_subset_size, windows):
-    features_minus_window = [f for f in features if f not in windows]
+def get_rand_subset(features, rand_subset_size, window):
+    features_minus_window = [f for f in features if f != window]
     return sorted(random.sample(features_minus_window, rand_subset_size))
 
 
@@ -117,11 +117,12 @@ def evaluate_threshold(threshold):
 
     with open('test_set.txt', 'r') as test_set:
         for clip in test_set:
-            clip = clip.rstrip()  # strip trailing \n
-            score = scores.loc[scores['trialID'] == clip]['score'].item()
-            label = metadata.loc[scores['trialID'] == clip]['key'].item()
-            scores_list.append(score)
-            labels_list.append(label)
+            if clip != 'trialID\n':
+                clip = clip.rstrip()  # strip trailing \n
+                score = scores.loc[scores['trialID'] == clip]['score'].item()
+                label = metadata.loc[scores['trialID'] == clip]['key'].item()
+                scores_list.append(score)
+                labels_list.append(label)
 
     for score in scores_list:
         if score > threshold:
@@ -258,6 +259,7 @@ class Explainer:
     """
         @param model : torch.nn.Module, pre-trained pytorch model
         @param data_set : torch.utils.Dataset, the test set
+        @param labels : string, the data point ID
 
         Provides post-hoc explanation for a pytorch model
 
@@ -265,9 +267,10 @@ class Explainer:
         Evaluating each window's impact on the classifier's decision
     """
 
-    def __init__(self, model, data_set):
+    def __init__(self, model, data_set, labels):
         self.model = model.eval()  # sets the model to the 'eval' mode
         self.data_set = data_set
+        self.labels = labels
 
     def get_size(self):
         data_set_size = self.data_set.numpy()
@@ -276,51 +279,47 @@ class Explainer:
 
         return data_set_size
 
-    def shap_values(self, no_of_iterations, window, data_point, device):
+    def shap_values(self, n, window, data_point, device):
         """
-            @param no_of_iterations : int, recommended to be between 100 - 1000
+            @param n : int, no. of iterations - recommended to be between 100 - 1000
             @param window : int, no. between 0 and 4 (audio clip is divided into 5 windows)
             @param data_point : torch.Tensor, the data point in question
             @param device : torch.device, if cuda gpu available it improves speed of the model
 
             @return : float, Shapley value for given window
 
-            MONTE-CARLO APPROXIMATION OF SHAPLEY VALUES
+            Monte-Carlo approximation of Shapley values
         """
 
         feature_indices = [0, 1, 2, 3, 4]
         data_size = self.get_size()
         marginal_contributions = []
 
-        for _ in range(no_of_iterations):
-            x_with_window, x_without_window = np.zeros(64600), np.zeros(64600)
+        for _ in range(n):
             rand_idx = get_rand_idx(data_size)
             rand_instance = self.data_set[rand_idx]
             rand_subset_size = get_rand_subset_size(feature_indices)
             x_idx = get_rand_subset(feature_indices, rand_subset_size, [window])
+            x_with_window = deepcopy(data_point)
+            x_with_window = x_with_window.numpy()
+            x_without_window = deepcopy(data_point)
+            x_without_window = x_without_window.numpy()
 
-            for f in feature_indices:
-                if f in x_idx:
-                    x_with_window = replace(f, x_with_window, rand_instance)
-                    x_without_window = replace(f, x_without_window, rand_instance)
-                elif f == window:
-                    x_with_window = replace(f, x_with_window, data_point)
-                    x_without_window = replace(f, x_without_window, rand_instance)
-                else:
-                    x_with_window = replace(f, x_with_window, data_point)
-                    x_without_window = replace(f, x_without_window, data_point)
+            for x in x_idx:
+                x_with_window = replace(x, x_with_window, rand_instance)
+                x_without_window = replace(x, x_without_window, rand_instance)
+            x_without_window = replace(window, x_without_window, rand_instance)
 
             x_with_window = np.array([x_with_window])
             x_without_window = np.array([x_without_window])
-            x_with_window = torch.from_numpy(x_with_window).float()
-            x_without_window = torch.from_numpy(x_without_window).float()
+            x_with_window = torch.from_numpy(x_with_window)
+            x_without_window = torch.from_numpy(x_without_window)
             x_with_window = x_with_window.to(device)
             x_without_window = x_without_window.to(device)
 
             # snd dim of softmax is used as LLR
             pred_1 = self.model(x_with_window)[0][1].item()
             pred_2 = self.model(x_without_window)[0][1].item()
-
             marginal_contribution = pred_1 - pred_2
             marginal_contributions.append(marginal_contribution)
 
@@ -328,10 +327,30 @@ class Explainer:
 
         return shap_val
 
-    def efficiency_error(self, n, labels, device):
+
+    def create_prediction_set(self):
+        """
+            Return a text file with the hard classification for each clip
+            Compatible with pandas
+            The threshold I am using is -3.5
+        """
+
+        batch_in = self.data_set.to(device)
+        batch_out = self.model(batch_in)
+        scores = batch_out[:, 1].cpu().detach().numpy()
+
+        with open('prediction_set.txt', 'w') as f:
+            f.write('trialID key\n')
+            for i, s in enumerate(scores):
+                if s > -3.5:
+                    f.write('{0} {1}\n'.format(self.labels[i], 'bonafide'))
+                else:
+                    f.write('{0} {1}\n'.format(self.labels[i], 'spoof'))
+
+
+    def efficiency_error(self, n, device):
         """
             @param n : int, no. of iterations for Monte Carlo approx.
-            @param labels : list, names of the audio clips in data set
             @param device : torch.Device, Supports CUDA optimisation
 
             @return : float, Average percentage error for the efficient property of Shapley values
@@ -355,7 +374,7 @@ class Explainer:
 
         diffs = []
         for i, s in enumerate(sums):
-            l = labels[i]
+            l = self.labels[i]
             p = preds[i]
             e = abs(p - avg)  # expected value
             d = s - e
@@ -396,49 +415,22 @@ class Explainer:
         if not window:
             logging.info('There were no Shapley values similar enough to test symmetry...')
             return 
-            
-        feature_indices = [0, 1, 2, 3, 4]
-        data_size = self.get_size()
+
         errors = []
+        windows = [0,1,2,3,4]
+        windows.remove(window)
+        windows.remove(window1)
+        powerset = list(chain.from_iterable(combinations(windows, r) for r in range(len(windows) + 1)))
+        for s in powerset:
+            # model pred. with j
+            # model pred. with k
 
-        for _ in range(n):
-            rand_idx = get_rand_idx(data_size)
-            rand_instance = self.data_set[rand_idx]
+            # insert j into s
+            p1 = self.model(x)[0][1].item()
+            p2 = self.model(y)[0][1].item()
 
-            rand_subset_size = get_rand_subset_size(feature_indices)
-            x_idx = get_rand_subset(feature_indices, rand_subset_size, [window, window1])
-            x1_idx = get_rand_subset(feature_indices, rand_subset_size, [window, window1])
-
-            x_with_j = deepcopy(data_point)
-            x_with_j = x_with_window.numpy()
-            x_with_k= deepcopy(data_point)
-            x_with_k = x_without_window.numpy()
-
-            for x in x_idx:
-                x_with_j = replace(x, x_with_j, rand_instance)
-
-            for x1 in x1_idx:
-                x_with_k = replace(x1, x_with_k, rand_instance)
-
-            x_with_j = np.array([x_with_j])
-            x_with_k = np.array([x_with_k])
-            x_with_j = torch.from_numpy(x_with_j)
-            x_with_k = torch.from_numpy(x_with_k)
-            x_with_j = x_with_j.to(device)
-            x_with_k = x_with_k.to(device)
-
-            # snd dim of softmax is used as LLR
-            pred_j = abs(self.model(x_with_j)[0][1].item())
-            pred_k = abs(self.model(x_with_k)[0][1].item())
-
-            e = (abs(pred_j - pred_k) / ((pred_j + pred_k) / 2)) * 100
-            errors.append(e)
-
-        percent_err = sum(errors) / len(errors)
-        logging.info('Average percentage error for {0} iterations: {1}%'.format(n, percent_err))
-
-        return percent_err
-
+            return p1 - p2
+            
         
     def dummy_test(self, vals):
         """
@@ -495,12 +487,9 @@ class Explainer:
             marginal_contributions.append(marginal_contribution)
 
         shap_val = sum(marginal_contributions) / len(marginal_contributions)
-        # logging.info('Shapley value: {}'.format(shap_val))
 
         return shap_val
 
-
-        
         
 
 
@@ -510,10 +499,8 @@ if __name__ == '__main__':
 
     model, batch, labels, device = load_model(sys.argv[1])
 
-    shap_explainer = Explainer(model, batch)
+    shap_explainer = Explainer(model, batch, labels)
 
-    vals = []
-    for w in range(5):
-        vals.append(shap_explainer.shap_values(10, w, batch[0], device))
+    shap_explainer.create_prediction_set()
 
-    logging.info('Shapley values are : {}'.format(vals))
+    # shap_explainer.efficiency_error(1000, labels, device)
