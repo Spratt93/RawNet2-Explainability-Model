@@ -188,6 +188,32 @@ def model_prediction(scores, clip):
     return scores.loc[scores['trialID'] == clip]['score'].item()
 
 
+def find_prediction(clip):
+    """
+        @param clip : string, the ID of the data point
+
+        @return : class, the classification from the model
+    """
+
+    preds = pd.read_csv('prediction_set.txt', delimiter='\s+')
+    pred = preds.loc[preds['trialID'] == clip]['key'].item()
+
+    return pred
+
+
+def find_vocoder(clip):
+    """
+        @param clip : string, the ID of the data point
+
+        @return : string, the vocoder of that data point
+    """
+
+    vs = pd.read_csv('trial_metadata.txt', delimiter='\s+')
+    v = vs.loc[vs['trialID'] == clip]['vocoder'].item()
+
+    return v
+
+
 def plot_horizontal(name, windows, values):
     """
         @param name : string, name of audio clip
@@ -220,25 +246,37 @@ def plot_waveform(name, audio, values):
 
         SOLELY CONCERNED WITH THE LARGEST SHAPLEY VALUE
     """
-
+    p = find_prediction(name)
+    v = find_vocoder(name)
+    logging.info('Vocoder is {}'.format(v))
     duration = len(audio)
     time = round(duration / 16000)  # 16KHz sampling rate
     x = np.linspace(0, time, num=duration)
 
     significant_val = max(values)
-    logging.info('Shapley values: {}'.format(values))
-    logging.info('Largest Shapley value: {}'.format(significant_val))
     index = values.index(significant_val)
     end_slice = round((index + 1) * (duration / 5))
     begin_slice = round(end_slice - (duration / 5))
-    logging.info('Begin slice: {0} End Slice: {1}'.format(begin_slice, end_slice))
     begin_slice = begin_slice * (1/16000)
     end_slice = end_slice * (1/16000)
 
     plt.plot(x, audio, color='b')
-    plt.axvspan(begin_slice, end_slice, color='r', alpha=0.5)
     plt.xlabel('time')
-    plt.savefig('./plots/{}.png'.format(name))
+    plt.ylabel('amplitude')
+    plt.yticks([])
+    if p == 'spoof':
+        plt.axvspan(begin_slice, end_slice, color='r', alpha=0.5)
+    else:
+        plt.axvspan(begin_slice, end_slice, color='g', alpha=0.5)
+    if v == 'bonafide':
+        plt.savefig('./bonafide_plots/{}.png'.format(name))
+    if v == 'traditional_vocoder':
+        plt.savefig('./trad_plots/{}.png'.format(name))
+    if v == 'waveform_concatenation':
+        plt.savefig('./concat_plots/{}.png'.format(name))
+    if v == 'neural_vocoder_autoregressive':
+        plt.savefig('./neural_plots/{}.png'.format(name))
+
     plt.close()  # prevent graph glitching
 
 
@@ -501,6 +539,11 @@ if __name__ == '__main__':
 
     shap_explainer = Explainer(model, batch, labels)
 
-    shap_explainer.create_prediction_set()
+    for i, b in enumerate(batch):
+        name = labels[i]
+        test_file = librosa.load('./ASVspoof2021_DF_eval/flac/{}.flac'.format(name), sr=16000)
+        (audio, _) = test_file
+        vals = [shap_explainer.shap_values(10, w, b, device) for w in range(5)]
+        plot_waveform(name, audio, vals)
 
     # shap_explainer.efficiency_error(1000, labels, device)
