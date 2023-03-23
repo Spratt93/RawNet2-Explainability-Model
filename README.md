@@ -22,7 +22,7 @@ standardised to the `low_mp3` codec and contains 3 vocoders:
 
 To find out more about the properties of the test set take a look at
 *trial_metadata.txt* from the [keys and metalabels](https://www.asvspoof.org/asvspoof2021/DF-keys-full.tar.gz)
-package.
+package. Make sure to add *score.txt* and *trial_metadata.txt* to the directory.
 
 To run:
 ```
