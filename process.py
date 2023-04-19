@@ -1,39 +1,45 @@
 import pandas as pd
 
-# USED TO CLEAN THE ORIGINAL CSV TO JUST ID AND SCORES
-# data = pd.read_csv('results.csv', delimiter='\s+')
-# data = data.drop(columns=['date', 'dateTime', 'IP', 'address', 'preamble'])
-# data.to_csv('processed.csv')
+"""
+    Return the average score for the question groups
+"""
+def group_averages(df):
+    for i in range(1, 61):
+        c = str(i)
+        if i < 11 or (i > 20 and i < 31) or (i > 40 and i < 51):
+            df = df.replace({c : {'fake': 1, 'real': 0}})
+        else:
+            df = df.replace({c : {'real': 1, 'fake': 0}})
 
-df = pd.read_csv('processed.csv')
+    r = range(1,21)
+    cols = map(str, r)
+    df['g1'] = df[cols].sum(axis=1)
+    print('Group 1 average: {}'.format(df['g1'].mean()))
 
-for i in range(1, 61):
-    c = str(i)
-    if i < 11 or (i > 20 and i < 31) or (i > 40 and i < 51):
-        df = df.replace({c : {'fake': 1, 'real': 0}})
-    else:
-        df = df.replace({c : {'real': 1, 'fake': 0}})
+    r = range(21,41)
+    cols = map(str, r)
+    df['g2'] = df[cols].sum(axis=1)
+    print('Group 2 average: {}'.format(df['g2'].mean()))
 
-print(df.iloc[1,1:61].sum())
-# print(df.head())
+    r = range(41,61)
+    cols = map(str, r)
+    df['g3'] = df[cols].sum(axis=1)
+    print('Group 3 average: {}'.format(df['g3'].mean()))
 
-# AVG OVERALL SCORE
-# print('Mean score: {}'.format(df['score'].mean()))
 
-# lst = []
+def avg_score(df):
+    print('Mean score: {}'.format(df['score'].mean()))
 
-# for n in range(70):
-#     g1 = df.iloc[n,1:21].tolist()
-#     for i, ans in enumerate(g1):
-#         if i < 10:
-#             if ans == 'fake':
-#                 g1[i] = 1
-#             else:
-#                 g1[i] = 0
-#         else:
-#             if ans == 'real':
-#                 g1[i] = 1
-#             else:
-#                 g1[i] = 0
+"""
+    Cleans the original csv file from unnecessary info
+"""
+def clean_results(df):
+    data = pd.read_csv('results.csv', delimiter='\s+')
+    data = data.drop(columns=['date', 'dateTime', 'IP', 'address', 'preamble'])
+    data.to_csv('processed.csv')
 
-#         lst.append(g1)
+
+
+if __name__ == '__main__':
+    df = pd.read_csv('processed.csv') # cleaned csv
+    group_averages(df)
