@@ -4,7 +4,7 @@ import numpy as np
 
 
 """
-    Cleans the original csv file from unnecessary info
+    Clean original csv file
 """
 def clean_results():
     data = pd.read_csv('results.csv', delimiter='\s+')
@@ -12,6 +12,9 @@ def clean_results():
     data.to_csv('processed.csv')
 
 
+"""
+    Return the average participant score
+"""
 def avg_score(df):
     print('Mean score: {}'.format(df['score'].mean()))
 
@@ -89,41 +92,99 @@ def error_counts(df):
     print('Average error for neural_vocoder: {}'.format(sum(neural_counts) / len(neural_counts)))
     print('Average error for bonafide: {}'.format(sum(bonafide_counts) / len(bonafide_counts)))
 
+    model_error(counts)
 
+
+"""
+    Calculates average participant error rate 
+    when model is incorrect
+"""
+def model_error(counts):
+    model_fails = [12, 33, 35, 36, 37, 41, 57]
+    human = []
+    for f in model_fails:
+        i,c = counts[f-1]
+        p = (c / 70) * 100
+        human.append((f, p))
+
+    human = sorted(human, key=lambda human: human[1], reverse=True)
+    print(human)
+
+
+"""
+    Plots the performance increase from full assistance
+    relative to both minimal and no assistance
+"""
 def plot_perf_boost():
-    plt.bar(['G3 vs G1', 'G3 vs G2'], [7.3,2.7])
+    fst = ['G3 vs G1']
+    r1 = [7.3]
+    snd = ['G3 vs G2']
+    r2 = [2.7]
+
+    plt.bar(fst, r1, color='olivedrab', label='G3 vs G1')
+    plt.bar(snd, r2, color='indianred', label='G3 vs G2')
     plt.xlabel('Groups')
     plt.ylabel('Performance Increase (%)')
     plt.ylim([0, 30])
+    plt.title('Relative performance increase')
+    plt.legend()
     plt.show()
 
 
+"""
+    Plots the difference in performance between
+    the model and participants for each question group
+"""
 def plot_group_perf():
     x = ['G1', 'G2', 'G3']
     w = 0.4
     groups = [15.5, 16.2, 16.63]
     model = [19, 16, 18]
-
     fst = [0,1,2]
     snd = [i+w for i in fst]
 
     plt.bar(fst, groups, w, label='Human')
     plt.bar(snd, model, w, label='Model')
-
     plt.xlabel('Groups')
     plt.ylabel('Correct Answers')
     plt.ylim([0,20])
     plt.xticks([0.2, 1.2, 2.2], x)
+    plt.title('Human vs Model performance in each group')
     plt.legend()
     plt.show()
 
 
+"""
+    Pie chart displaying vocoder distribution of participant errors
+"""
 def error_pie():
-    # scores = [12.7,11.4,28.5,10.64]
     scores = np.array([20,18,45,17])
     labels = ['Traditional', 'Waveform Concatenation', 'Neural', 'Bona fide']
     clrs = ['lightcoral','paleturquoise','orange','lightgreen']
     plt.pie(scores, labels=labels, colors=clrs, autopct='%0.0f%%')
+    plt.title('Distribution of errors amongst vocoders')
+    plt.show()
+
+
+"""
+    Plots participant performance in instances when
+    model is incorrect
+"""
+def model_error_plot():
+    g1 = ['12']
+    g2 = ['35','36','33','37']
+    g3 = ['41','57']
+    r1 = [10.0]
+    r2 = [48.57, 30.0, 24.29, 22.86]
+    r3 = [57.14, 40.0]
+
+    plt.barh(g1, r1, color='lightslategrey', label='Group 1')
+    plt.barh(g2, r2, color='indianred', label='Group 2')
+    plt.barh(g3, r3, color='olivedrab', label='Group 3')
+    plt.xlabel('Incorrect particpants (%)')
+    plt.ylabel('Question No.')
+    plt.title('Human performance when model incorrect')
+    plt.legend()
     plt.show()
 
 
@@ -131,4 +192,4 @@ def error_pie():
 if __name__ == '__main__':
     # df = pd.read_csv('processed.csv') # cleaned csv
     # group_averages(df)
-    plot_group_perf()
+    plot_perf_boost()
