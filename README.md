@@ -36,8 +36,8 @@ To find out more about the properties of the test set take a look at
 package. Make sure to add *score.txt* and *trial_metadata.txt* to the directory.
 
 ### Example
-In the example instance shown below. RawNet2 predicted that the audio is deepfake, and my explainability model indicates that the middle time window of the audio clip is the most significant to the classifier's decision.
-Therefore the user should pay close attention to the middle of the audio clip, and determine whether they hear
+In the example instance shown below, RawNet2 predicted that the audio is deepfaked, and my explainability model indicates that the middle time window is the most significant to the classifier's decision.
+Therefore, the user should pay close attention to the middle of the audio clip, and determine whether they hear
 any suspicious artefacts themselves.
 
 <div align="center">
